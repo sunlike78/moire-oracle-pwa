@@ -437,6 +437,36 @@
           </label>
           <button class="primary-button" type="submit">Сохранить ключ</button>
         </form>
+        <section class="data-vault" aria-labelledby="vault-title">
+          <div class="vault-heading">
+            <span class="vault-shield" aria-hidden="true">◇</span>
+            <div>
+              <span class="section-kicker" id="vault-title">ЗАЩИТА ДАННЫХ</span>
+              <strong id="vault-status" aria-live="polite">Проверяем локальное хранилище…</strong>
+            </div>
+          </div>
+          <p id="vault-status-detail">
+            MOIRÉ создаёт вторую локальную копию. Для защиты от очистки данных iOS сохрани файл в «Файлы» или iCloud.
+          </p>
+          <p class="vault-recovery-note hidden" id="vault-recovery-note" role="status"></p>
+          <div class="vault-actions">
+            <button class="vault-button" id="export-backup-button" type="button">
+              <span aria-hidden="true">↑</span>
+              Сохранить копию
+            </button>
+            <button class="vault-button" id="import-backup-button" type="button">
+              <span aria-hidden="true">↓</span>
+              Восстановить
+            </button>
+          </div>
+          <input
+            class="hidden"
+            id="backup-file-input"
+            type="file"
+            accept=".json,application/json"
+            aria-label="Выбрать резервную копию MOIRÉ"
+          />
+        </section>
         <button class="text-button danger-link" id="clear-data-button" type="button">
           Удалить все данные с устройства
         </button>

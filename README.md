@@ -27,10 +27,18 @@ Open `http://127.0.0.1:4173`.
 3. Tap **Add to Home Screen**.
 4. Launch MOIRÉ from the new icon.
 
-Profile, forecasts, sound preference, and chronicle entries stay in local browser
-storage. Coordinates are sent directly from the browser to public map services
-only while selecting a nearby place; MOIRÉ does not persist them or send them to
-an application server. The app uses a rate-limited OpenStreetMap Nominatim search
+Profile, forecasts, sound preference, and chronicle entries stay on the device.
+Every update is written to local storage and mirrored automatically in IndexedDB.
+The profile sheet can also export an explicit JSON backup to Files/iCloud and
+restore it later. This file is the reliable way to move state between Safari and
+an installed Home Screen copy, which iOS can treat as separate storage contexts.
+No browser-only scheme can guarantee recovery after iOS removes all site data, so
+important chronicles should have an exported backup. The export is readable JSON,
+not encrypted, and should be kept private because it contains the saved profile.
+
+Coordinates are sent directly from the browser to public map services only while
+selecting a nearby place; MOIRÉ does not persist them or send them to an
+application server. The app uses a rate-limited OpenStreetMap Nominatim search
 for parks, monuments, memorials, and public artwork, with public Overpass
 instances as a fallback.
 

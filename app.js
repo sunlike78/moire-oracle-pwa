@@ -1,4 +1,11 @@
 const STORAGE_KEY = "moire-oracle-state-v1";
+const VAULT_DB_NAME = "moire-oracle-vault";
+const VAULT_DB_VERSION = 1;
+const VAULT_STORE_NAME = "snapshots";
+const VAULT_RECORD_KEY = "latest";
+const BACKUP_FORMAT = "moire-oracle-backup";
+const BACKUP_VERSION = 1;
+const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const HOLD_DURATION = 1800;
 const placeSearchCache = new Map();
 let lastNominatimRequestAt = 0;
@@ -142,7 +149,8 @@ const fragmentCopyBank = [
   "Ты вернулся к сигналу — именно это завершило цепь."
 ];
 
-let state = loadState();
+const initialLocalState = readLocalState();
+let state = initialLocalState.state;
 let currentRitual = { energy: "", card: null, holdMs: 0, seal: "", forecast: null };
 let currentThreshold = { radius: 1200, tone: "quiet", seal: "", omen: "", intention: "" };
 let holdTimer = null;
@@ -154,30 +162,202 @@ let ambientNodes = [];
 let echoTimer = null;
 let ambientStarted = false;
 let ambientStarting = false;
+let vaultWriteQueue = Promise.resolve(true);
+let persistenceRequested = false;
+let storageProtection = {
+  localFound: initialLocalState.found,
+  localCorrupt: initialLocalState.corrupt,
+  mirror: "pending",
+  persisted: null,
+  recovered: false
+};
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-function loadState() {
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeState(saved) {
+  const source = isPlainObject(saved) ? saved : {};
+  const sourceProfile = isPlainObject(source.profile) ? source.profile : {};
+  const hasSoundPreference = source.soundPreferenceSet === true;
+
+  return {
+    profile: {
+      name: typeof sourceProfile.name === "string" ? sourceProfile.name.slice(0, 24) : "",
+      birthDate: typeof sourceProfile.birthDate === "string" ? sourceProfile.birthDate : "",
+      birthTime: typeof sourceProfile.birthTime === "string" ? sourceProfile.birthTime : ""
+    },
+    soundEnabled: hasSoundPreference ? source.soundEnabled !== false : true,
+    soundPreferenceSet: hasSoundPreference,
+    installDismissed: source.installDismissed === true,
+    daily: isPlainObject(source.daily) ? source.daily : {},
+    chronicle: Array.isArray(source.chronicle) ? source.chronicle : []
+  };
+}
+
+function readLocalState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    const hasSoundPreference = saved.soundPreferenceSet === true;
-    return {
-      ...defaults,
-      ...saved,
-      soundEnabled: hasSoundPreference ? saved.soundEnabled !== false : true,
-      soundPreferenceSet: hasSoundPreference,
-      profile: { ...defaults.profile, ...(saved.profile || {}) },
-      daily: saved.daily || {},
-      chronicle: Array.isArray(saved.chronicle) ? saved.chronicle : []
-    };
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { state: structuredClone(defaults), found: false, corrupt: false };
+    const parsed = JSON.parse(raw);
+    if (!isPlainObject(parsed)) throw new Error("Invalid local state");
+    return { state: normalizeState(parsed), found: true, corrupt: false };
   } catch {
-    return structuredClone(defaults);
+    return { state: structuredClone(defaults), found: false, corrupt: true };
   }
 }
 
+function openVault() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+      reject(new Error("IndexedDB unavailable"));
+      return;
+    }
+
+    const request = indexedDB.open(VAULT_DB_NAME, VAULT_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(VAULT_STORE_NAME)) {
+        database.createObjectStore(VAULT_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Vault unavailable"));
+    request.onblocked = () => reject(new Error("Vault blocked"));
+  });
+}
+
+async function readVaultSnapshot() {
+  const database = await openVault();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(VAULT_STORE_NAME, "readonly");
+      const request = transaction.objectStore(VAULT_STORE_NAME).get(VAULT_RECORD_KEY);
+      request.onsuccess = () => resolve(request.result?.state ? normalizeState(request.result.state) : null);
+      request.onerror = () => reject(request.error || new Error("Vault read failed"));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function writeVaultSnapshot(snapshot) {
+  const database = await openVault();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(VAULT_STORE_NAME, "readwrite");
+      transaction.objectStore(VAULT_STORE_NAME).put({
+        id: VAULT_RECORD_KEY,
+        version: BACKUP_VERSION,
+        updatedAt: new Date().toISOString(),
+        state: normalizeState(snapshot)
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error("Vault write failed"));
+      transaction.onabort = () => reject(transaction.error || new Error("Vault write aborted"));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function deleteVaultSnapshot() {
+  await vaultWriteQueue.catch(() => false);
+  const database = await openVault();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(VAULT_STORE_NAME, "readwrite");
+      transaction.objectStore(VAULT_STORE_NAME).delete(VAULT_RECORD_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error("Vault delete failed"));
+      transaction.onabort = () => reject(transaction.error || new Error("Vault delete aborted"));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+function queueVaultSnapshot(snapshot = state) {
+  const copy = normalizeState(structuredClone(snapshot));
+  vaultWriteQueue = vaultWriteQueue
+    .catch(() => false)
+    .then(() => writeVaultSnapshot(copy))
+    .then(() => {
+      storageProtection.mirror = "ready";
+      updateStorageStatusUI();
+      return true;
+    })
+    .catch(() => {
+      storageProtection.mirror = "unavailable";
+      updateStorageStatusUI();
+      return false;
+    });
+  return vaultWriteQueue;
+}
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  let localSaved = false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localSaved = true;
+    storageProtection.localFound = true;
+    storageProtection.localCorrupt = false;
+  } catch {
+    storageProtection.localFound = false;
+  }
+
+  return queueVaultSnapshot(state).then((mirrored) => localSaved || mirrored);
+}
+
+async function restoreStateBeforeInit() {
+  if (initialLocalState.found) {
+    queueVaultSnapshot(state);
+  } else {
+    try {
+      const snapshot = await readVaultSnapshot();
+      if (snapshot) {
+        state = snapshot;
+        storageProtection.recovered = true;
+        storageProtection.mirror = "ready";
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          storageProtection.localFound = true;
+          storageProtection.localCorrupt = false;
+        } catch {
+          storageProtection.localFound = false;
+        }
+      } else {
+        storageProtection.mirror = "ready";
+      }
+    } catch {
+      storageProtection.mirror = "unavailable";
+    }
+  }
+
+  if (navigator.storage?.persisted) {
+    try {
+      storageProtection.persisted = await navigator.storage.persisted();
+    } catch {
+      storageProtection.persisted = null;
+    }
+  }
+}
+
+async function requestPersistentStorage() {
+  if (persistenceRequested) return storageProtection.persisted;
+  persistenceRequested = true;
+  if (!navigator.storage?.persist) return null;
+
+  try {
+    storageProtection.persisted = await navigator.storage.persist();
+  } catch {
+    storageProtection.persisted = null;
+  }
+  updateStorageStatusUI();
+  return storageProtection.persisted;
 }
 
 function todayKey() {
@@ -422,6 +602,130 @@ function updateProfileUI() {
   $("#personal-greeting").textContent = name
     ? `${name.toUpperCase()}, ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ`
     : "ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ";
+  updateStorageStatusUI();
+}
+
+function hasPersonalData() {
+  return Boolean(
+    state.profile.name ||
+      state.profile.birthDate ||
+      state.profile.birthTime ||
+      Object.keys(state.daily).length ||
+      state.chronicle.length
+  );
+}
+
+function updateStorageStatusUI() {
+  const status = $("#vault-status");
+  const detail = $("#vault-status-detail");
+  const recoveryNote = $("#vault-recovery-note");
+  if (!status || !detail || !recoveryNote) return;
+
+  if (storageProtection.recovered) {
+    status.textContent = "Данные восстановлены из зеркала";
+  } else if (storageProtection.persisted === true) {
+    status.textContent = "Хранилище закреплено на устройстве";
+  } else if (storageProtection.mirror === "ready") {
+    status.textContent = "Двойное локальное сохранение работает";
+  } else if (storageProtection.mirror === "unavailable") {
+    status.textContent = storageProtection.localFound
+      ? "Доступна одна локальная копия"
+      : "Локальное хранилище заблокировано";
+  } else {
+    status.textContent = "Создаём защитное зеркало…";
+  }
+
+  detail.textContent =
+    storageProtection.persisted === true
+      ? "Основная запись и защитное зеркало обновляются автоматически. Отдельный файл всё равно нужен для переноса между Safari и иконкой «Домой»."
+      : "Основная запись и защитное зеркало обновляются автоматически. iOS всё равно может очистить оба — сохрани отдельный файл в «Файлы» или iCloud.";
+
+  const shouldShowRecovery = !hasPersonalData() && !storageProtection.recovered;
+  recoveryNote.classList.toggle("hidden", !shouldShowRecovery);
+  if (shouldShowRecovery) {
+    recoveryNote.textContent = storageProtection.localCorrupt
+      ? "Локальная запись повреждена, а восстановить её из зеркала не удалось. Если MOIRÉ раньше открывался в Safari, проверь ту же ссылку там и создай резервную копию."
+      : "В этом контуре данных не найдено. Если раньше открывал MOIRÉ в Safari, проверь ту же ссылку там: Safari и иконка «Домой» могут хранить данные раздельно.";
+  }
+}
+
+function createBackupEnvelope() {
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    appState: normalizeState(state)
+  };
+}
+
+function downloadBackupFile(file) {
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(file);
+  link.href = url;
+  link.download = file.name;
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function exportBackup() {
+  await requestPersistentStorage();
+  await saveState();
+
+  const payload = JSON.stringify(createBackupEnvelope(), null, 2);
+  const file = new File([payload], `moire-backup-${todayKey()}.json`, {
+    type: "application/json"
+  });
+
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: "Резервная копия MOIRÉ",
+        text: "Сохрани этот файл в «Файлы» или iCloud."
+      });
+      showToast("Резервная копия передана в меню «Поделиться».");
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+
+  downloadBackupFile(file);
+  showToast("Резервная копия создана. Сохрани файл в надёжном месте.");
+}
+
+function readBackupState(parsed) {
+  if (!isPlainObject(parsed) || parsed.format !== BACKUP_FORMAT) {
+    throw new Error("Это не резервная копия MOIRÉ.");
+  }
+  if (parsed.version !== BACKUP_VERSION || !isPlainObject(parsed.appState)) {
+    throw new Error("Версия резервной копии не поддерживается.");
+  }
+  return normalizeState(parsed.appState);
+}
+
+async function importBackup(file) {
+  if (!file) return;
+  if (file.size > MAX_BACKUP_BYTES) {
+    throw new Error("Файл слишком большой для резервной копии MOIRÉ.");
+  }
+
+  const importedState = readBackupState(JSON.parse(await file.text()));
+  const importedName = importedState.profile.name ? ` для ${importedState.profile.name}` : "";
+  if (!window.confirm(`Восстановить данные${importedName}? Текущая запись на этом устройстве будет заменена.`)) {
+    return;
+  }
+
+  state = importedState;
+  storageProtection.recovered = true;
+  const saved = await saveState();
+  if (!saved) throw new Error("Браузер не разрешил сохранить восстановленные данные.");
+  updateProfileUI();
+  showToast("Данные восстановлены. MOIRÉ перезапускает контур…");
+  window.setTimeout(() => window.location.reload(), 900);
 }
 
 function showRitualStep(step) {
@@ -1337,22 +1641,54 @@ function init() {
       birthDate: $("#birth-date-input").value,
       birthTime: $("#birth-time-input").value
     };
-    saveState();
+    const saved = await saveState();
     updateProfileUI();
     const regenerated = await regenerateTodayForProfile(previousProfile);
     closeLayer($("#profile-sheet"));
     showToast(
-      regenerated
+      !saved
+        ? "Ключ изменён, но iOS не разрешил сохранить его. Освободи место и попробуй снова."
+        : regenerated
         ? "Личный ключ изменён: сегодняшний прогноз пересобран, старая петля Эха сброшена."
         : "Личный ключ сохранён только на этом устройстве."
     );
     playTone("select");
   });
 
-  $("#clear-data-button").addEventListener("click", () => {
+  $("#export-backup-button").addEventListener("click", () => {
+    exportBackup().catch((error) => {
+      showToast(error?.message || "Не удалось создать резервную копию.");
+    });
+  });
+  $("#import-backup-button").addEventListener("click", () => $("#backup-file-input").click());
+  $("#backup-file-input").addEventListener("change", async (event) => {
+    const input = event.currentTarget;
+    try {
+      await importBackup(input.files?.[0]);
+    } catch (error) {
+      showToast(error instanceof SyntaxError ? "Файл резервной копии повреждён." : error?.message || "Не удалось восстановить данные.");
+    } finally {
+      input.value = "";
+    }
+  });
+
+  $("#clear-data-button").addEventListener("click", async () => {
     if (!window.confirm("Удалить профиль, прогнозы и всю хронику с этого устройства?")) return;
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // IndexedDB cleanup below still removes the protective mirror.
+    }
+    try {
+      await deleteVaultSnapshot();
+      storageProtection.mirror = "ready";
+    } catch {
+      storageProtection.mirror = "unavailable";
+    }
     state = structuredClone(defaults);
+    storageProtection.localFound = false;
+    storageProtection.localCorrupt = false;
+    storageProtection.recovered = false;
     stopAmbientSound();
     updateProfileUI();
     updateSoundUI();
@@ -1422,9 +1758,10 @@ function init() {
   document.addEventListener(
     "pointerdown",
     (event) => {
+      requestPersistentStorage();
       if (state.soundEnabled && !event.target.closest("#sound-toggle")) startAmbientSound();
     },
-    { passive: true }
+    { passive: true, once: true }
   );
   $("#dismiss-install").addEventListener("click", () => {
     state.installDismissed = true;
@@ -1445,6 +1782,15 @@ function init() {
     });
   }
   window.setInterval(updateThresholdAvailability, 60000);
+
+  if (storageProtection.recovered) {
+    window.setTimeout(() => {
+      showToast("MOIRÉ восстановил данные из защитного зеркала.");
+    }, 500);
+  }
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", async () => {
+  await restoreStateBeforeInit();
+  init();
+});
