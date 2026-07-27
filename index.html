@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#080a12" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MOIRÉ" />
+    <meta
+      name="description"
+      content="MOIRÉ — иммерсивный оракул вероятностей и безопасных городских совпадений."
+    />
+    <meta property="og:title" content="MOIRÉ — оракул вероятностей" />
+    <meta
+      property="og:description"
+      content="Спроси. Выйди. Заметь. Персональные ритуалы, редкие события и безопасные городские пороги."
+    />
+    <meta property="og:image" content="./assets/moire-icon-1024.png" />
+    <meta property="og:type" content="website" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+    <link rel="icon" href="./assets/icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>MOIRÉ — оракул вероятностей</title>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <div class="aurora aurora-one" aria-hidden="true"></div>
+    <div class="aurora aurora-two" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="brand" type="button" data-open="about-modal" aria-label="О MOIRÉ">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span>
+          </span>
+          <span class="brand-copy">
+            <strong>MOIRÉ</strong>
+            <small>оракул вероятностей</small>
+          </span>
+        </button>
+
+        <div class="top-actions">
+          <button class="icon-button" id="sound-toggle" type="button" aria-label="Включить звук">
+            <span class="sound-icon" aria-hidden="true"></span>
+          </button>
+          <button class="avatar-button" id="profile-button" type="button" aria-label="Профиль">
+            <span id="avatar-letter">○</span>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="view is-active" id="today-view" data-view="today" aria-labelledby="today-title">
+          <div class="day-meta reveal">
+            <span id="day-label">СЕГОДНЯ</span>
+            <span class="day-line"></span>
+            <span id="day-phase">ПОРОГ ВНИМАНИЯ</span>
+          </div>
+
+          <section class="oracle-hero reveal reveal-delay-1">
+            <div class="orbit-stage" id="orbit-stage" aria-hidden="true">
+              <div class="orbit orbit-a"></div>
+              <div class="orbit orbit-b"></div>
+              <div class="orbit orbit-c"></div>
+              <div class="eclipse">
+                <div class="eclipse-glow"></div>
+                <div class="eclipse-core"></div>
+              </div>
+              <span class="wandering-star"></span>
+            </div>
+
+            <p class="eyebrow" id="personal-greeting">ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ</p>
+            <h1 id="today-title">Сегодня случайность<br />смотрит в твою сторону.</h1>
+            <p class="hero-copy" id="hero-copy">
+              Дай системе три сигнала. Прогноз будет запечатан до того, как ты его увидишь.
+            </p>
+
+            <button class="primary-button ritual-cta" id="open-day-button" type="button">
+              <span>Открыть этот день</span>
+              <span class="button-glyph" aria-hidden="true">✦</span>
+            </button>
+
+            <button class="text-button hidden" id="show-forecast-button" type="button">
+              Вернуться к прогнозу
+            </button>
+          </section>
+
+          <section class="forecast-section hidden" id="forecast-section" aria-live="polite">
+            <div class="section-heading">
+              <div>
+                <span class="section-kicker">КАРТА ДНЯ</span>
+                <h2 id="forecast-title">Тихая гравитация</h2>
+              </div>
+              <button class="seal-button" type="button" data-open="seal-modal" aria-label="Показать печать прогноза">
+                <span>ПЕЧАТЬ</span>
+                <strong id="forecast-seal-short">—</strong>
+              </button>
+            </div>
+
+            <article class="signal-card signal-primary">
+              <div class="signal-topline">
+                <span class="truth-tag pattern">PATTERN</span>
+                <span class="signal-strength" id="gravity-strength">78% резонанса</span>
+              </div>
+              <h3>Гравитация</h3>
+              <p id="gravity-copy"></p>
+              <div class="card-foot">
+                <span id="gravity-window"></span>
+                <span class="mini-orbit" aria-hidden="true"></span>
+              </div>
+            </article>
+
+            <div class="signal-grid">
+              <article class="signal-card compact-card">
+                <div class="signal-topline">
+                  <span class="truth-tag myth">MYTH</span>
+                  <span class="signal-dot amber"></span>
+                </div>
+                <h3>Орбита</h3>
+                <p id="orbit-copy"></p>
+              </article>
+
+              <article class="signal-card compact-card">
+                <div class="signal-topline">
+                  <span class="truth-tag chance">CHANCE</span>
+                  <span class="signal-dot blue"></span>
+                </div>
+                <h3>Комета</h3>
+                <p id="comet-copy"></p>
+              </article>
+            </div>
+
+            <article class="anomaly-card">
+              <div class="anomaly-symbol" aria-hidden="true">
+                <span></span>
+              </div>
+              <div>
+                <span class="section-kicker">РЕДКОЕ СОБЫТИЕ · ЗАТМЕНИЕ</span>
+                <h3 id="eclipse-title">След из другого дня</h3>
+                <p id="eclipse-copy"></p>
+              </div>
+              <button class="round-action" id="resolve-anomaly-button" type="button" aria-label="Отметить исход">
+                ↗
+              </button>
+            </article>
+
+            <button class="secondary-button" id="open-threshold-from-today" type="button">
+              <span>
+                <small>ГОРОДСКОЙ РИТУАЛ</small>
+                Найти Порог рядом
+              </span>
+              <span aria-hidden="true">⌁</span>
+            </button>
+
+            <p class="truth-footnote">
+              MOIRÉ создаёт интерпретации, а не устанавливает факты. Нажми на метку, чтобы увидеть источник эффекта.
+            </p>
+          </section>
+        </section>
+
+        <section class="view" id="threshold-view" data-view="threshold" aria-labelledby="threshold-title">
+          <div class="threshold-intro reveal">
+            <div class="threshold-glyph" aria-hidden="true">
+              <span></span>
+            </div>
+            <span class="section-kicker">ЭКСПЕДИЦИЯ · БЕТА</span>
+            <h1 id="threshold-title">Место, которое<br />не искало тебя.</h1>
+            <p>
+              Задай намерение. MOIRÉ запечатает его до выбора точки и найдёт поблизости
+              публичное место из OpenStreetMap.
+            </p>
+          </div>
+
+          <form class="threshold-form" id="threshold-form">
+            <label class="field-label" for="intention-input">
+              <span>НАМЕРЕНИЕ</span>
+              <span id="intention-count">0/64</span>
+            </label>
+            <div class="intention-field">
+              <textarea
+                id="intention-input"
+                maxlength="64"
+                rows="2"
+                placeholder="Что я должен заметить сегодня?"
+                required
+              ></textarea>
+              <span class="intention-mark" aria-hidden="true">⌁</span>
+            </div>
+
+            <fieldset>
+              <legend>РАДИУС</legend>
+              <div class="choice-row" id="radius-choices">
+                <button class="choice-chip" type="button" data-value="500">5 мин</button>
+                <button class="choice-chip is-selected" type="button" data-value="1200">15 мин</button>
+                <button class="choice-chip" type="button" data-value="2500">30 мин</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>ТОН</legend>
+              <div class="choice-row" id="tone-choices">
+                <button class="choice-chip is-selected" type="button" data-value="quiet">Тихий</button>
+                <button class="choice-chip" type="button" data-value="strange">Странный</button>
+                <button class="choice-chip" type="button" data-value="warm">Добрый</button>
+              </div>
+            </fieldset>
+
+            <label class="safety-check">
+              <input id="safety-confirm" type="checkbox" required />
+              <span class="check-box" aria-hidden="true"></span>
+              <span>
+                Я пойду только днём, останусь в публичном месте и сам проверю безопасность маршрута.
+              </span>
+            </label>
+
+            <button class="primary-button" id="seal-intention-button" type="submit">
+              <span>Запечатать намерение</span>
+              <span class="button-glyph" aria-hidden="true">✦</span>
+            </button>
+          </form>
+
+          <section class="threshold-result hidden" id="threshold-result" aria-live="polite">
+            <div class="result-seal">
+              <span>ПЕЧАТЬ НАМЕРЕНИЯ</span>
+              <strong id="intention-seal">—</strong>
+            </div>
+            <div class="map-oracle" id="map-oracle">
+              <div class="radar-ring radar-one"></div>
+              <div class="radar-ring radar-two"></div>
+              <div class="radar-ring radar-three"></div>
+              <div class="radar-sweep"></div>
+              <span class="map-point"></span>
+              <span class="map-line line-one"></span>
+              <span class="map-line line-two"></span>
+              <span class="map-line line-three"></span>
+            </div>
+            <div class="result-copy">
+              <span class="section-kicker" id="threshold-status">ТОЧКА ЕЩЁ НЕ ВЫБРАНА</span>
+              <h2 id="place-name">Сначала разреши геопозицию</h2>
+              <p id="place-meta">
+                Координаты передаются OpenStreetMap Overpass только для поиска публичных мест;
+                MOIRÉ их не сохраняет.
+              </p>
+            </div>
+            <div class="omen-card">
+              <span>ИЩИ ЗНАК, ВЫБРАННЫЙ ЗАРАНЕЕ</span>
+              <strong id="omen-copy">—</strong>
+              <small id="omen-proof">Он появится до раскрытия точки.</small>
+            </div>
+            <button class="primary-button" id="find-threshold-button" type="button">
+              <span>Найти безопасный Порог</span>
+              <span class="button-glyph" aria-hidden="true">⌖</span>
+            </button>
+            <a class="secondary-button hidden" id="open-map-link" href="#" target="_blank" rel="noopener">
+              <span>
+                <small>ОТКРЫТЬ В OPENSTREETMAP</small>
+                Проверить путь
+              </span>
+              <span aria-hidden="true">↗</span>
+            </a>
+            <button class="text-button" id="reset-threshold-button" type="button">Создать другой Порог</button>
+            <p class="safety-note">
+              Не переходи ограждения, не входи в заброшенные здания и не иди туда, где тебе некомфортно.
+              Точка — приглашение заметить мир, а не приказ.
+            </p>
+          </section>
+        </section>
+
+        <section class="view" id="chronicle-view" data-view="chronicle" aria-labelledby="chronicle-title">
+          <div class="section-heading chronicle-heading reveal">
+            <div>
+              <span class="section-kicker">ЛИЧНАЯ СТАТИСТИКА</span>
+              <h1 id="chronicle-title">Хроника совпадений</h1>
+            </div>
+            <span class="moon-index" id="chronicle-count">00</span>
+          </div>
+
+          <section class="chronicle-empty" id="chronicle-empty">
+            <div class="empty-orbit" aria-hidden="true">
+              <span></span>
+            </div>
+            <h2>Пока здесь тихо.</h2>
+            <p>Открой день или пройди к Порогу — и первый след появится в хронике.</p>
+            <button class="secondary-button" id="chronicle-start-button" type="button">
+              <span>Открыть сегодняшний день</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </section>
+
+          <section class="chronicle-content hidden" id="chronicle-content">
+            <div class="stats-ribbon">
+              <div>
+                <strong id="stat-observed">0</strong>
+                <span>наблюдений</span>
+              </div>
+              <div>
+                <strong id="stat-exact">0</strong>
+                <span>точных</span>
+              </div>
+              <div>
+                <strong id="stat-streak">0</strong>
+                <span>дней подряд</span>
+              </div>
+            </div>
+            <div class="chronicle-list" id="chronicle-list"></div>
+          </section>
+
+          <aside class="bias-card">
+            <span class="truth-tag pattern">PATTERN</span>
+            <h3>Память любит попадания.</h3>
+            <p>
+              Поэтому MOIRÉ сохраняет и совпадения, и промахи. Магия ощущается сильнее,
+              когда ей не помогают забывать неудобное.
+            </p>
+          </aside>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Основная навигация">
+        <button class="nav-item is-active" type="button" data-target="today" aria-current="page">
+          <span class="nav-icon sun-glyph" aria-hidden="true"></span>
+          <span>Сегодня</span>
+        </button>
+        <button class="nav-item threshold-nav" type="button" data-target="threshold">
+          <span class="nav-portal" aria-hidden="true">⌁</span>
+          <span>Порог</span>
+        </button>
+        <button class="nav-item" type="button" data-target="chronicle">
+          <span class="nav-icon chronicle-glyph" aria-hidden="true"></span>
+          <span>Хроника</span>
+        </button>
+      </nav>
+    </div>
+
+    <section class="sheet hidden" id="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+      <button class="sheet-backdrop" type="button" data-close aria-label="Закрыть"></button>
+      <div class="sheet-panel">
+        <div class="sheet-handle"></div>
+        <span class="section-kicker">ЛИЧНЫЙ КЛЮЧ</span>
+        <h2 id="profile-title">Настрой резонанс</h2>
+        <p class="sheet-intro">
+          Данные остаются в этом браузере. Они влияют на словарь и последовательность ритуалов,
+          но не предсказывают будущее.
+        </p>
+        <form id="profile-form">
+          <label>
+            <span>Как к тебе обращаться</span>
+            <input id="name-input" type="text" maxlength="24" placeholder="Имя" autocomplete="given-name" />
+          </label>
+          <label>
+            <span>Дата рождения</span>
+            <input id="birth-date-input" type="date" autocomplete="bday" />
+          </label>
+          <label>
+            <span>Время рождения <small>необязательно</small></span>
+            <input id="birth-time-input" type="time" />
+          </label>
+          <button class="primary-button" type="submit">Сохранить ключ</button>
+        </form>
+        <button class="text-button danger-link" id="clear-data-button" type="button">
+          Удалить все данные с устройства
+        </button>
+      </div>
+    </section>
+
+    <section class="modal hidden" id="ritual-modal" role="dialog" aria-modal="true" aria-labelledby="ritual-title">
+      <div class="modal-panel ritual-panel">
+        <div class="ritual-progress">
+          <span class="is-active"></span>
+          <span></span>
+          <span></span>
+        </div>
+
+        <div class="ritual-step is-active" data-step="1">
+          <span class="section-kicker">СИГНАЛ 01 · СОСТОЯНИЕ</span>
+          <h2 id="ritual-title">Как сегодня звучит<br />твоя энергия?</h2>
+          <p>Не думай дольше трёх секунд.</p>
+          <div class="energy-choices">
+            <button type="button" data-energy="low">
+              <span class="energy-wave wave-low" aria-hidden="true"></span>
+              <strong>Тихо</strong>
+              <small>Хочу сохранить силы</small>
+            </button>
+            <button type="button" data-energy="steady">
+              <span class="energy-wave wave-steady" aria-hidden="true"></span>
+              <strong>Ровно</strong>
+              <small>Готов двигаться</small>
+            </button>
+            <button type="button" data-energy="charged">
+              <span class="energy-wave wave-high" aria-hidden="true"></span>
+              <strong>Искрит</strong>
+              <small>Нужен выход энергии</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="ritual-step" data-step="2">
+          <span class="section-kicker">СИГНАЛ 02 · ПРИСУТСТВИЕ</span>
+          <h2>Удерживай,<br />пока круг не замкнётся.</h2>
+          <p>Отпусти раньше — и печать изменится.</p>
+          <button class="hold-button" id="hold-button" type="button" aria-label="Нажать и удерживать">
+            <span class="hold-ring"></span>
+            <span class="hold-core">держи</span>
+          </button>
+          <small class="hold-hint" id="hold-hint">1,8 секунды</small>
+        </div>
+
+        <div class="ritual-step" data-step="3">
+          <span class="section-kicker">СИГНАЛ 03 · ВЫБОР</span>
+          <h2>Одна карта уже<br />знает твой вопрос.</h2>
+          <p>Выбери не красивую — ту, которая первой позвала.</p>
+          <div class="card-choice" id="card-choice">
+            <button type="button" data-card="0" aria-label="Первая карта"><span>Ⅰ</span></button>
+            <button type="button" data-card="1" aria-label="Вторая карта"><span>Ⅱ</span></button>
+            <button type="button" data-card="2" aria-label="Третья карта"><span>Ⅲ</span></button>
+          </div>
+        </div>
+
+        <div class="ritual-step ritual-reveal" data-step="4">
+          <div class="reveal-sigil" aria-hidden="true">
+            <div></div>
+            <span>✦</span>
+          </div>
+          <span class="section-kicker">ПЕЧАТЬ СОЗДАНА</span>
+          <h2 id="reveal-title">Контур совпал.</h2>
+          <p id="reveal-copy">Прогноз существовал до раскрытия.</p>
+          <strong class="full-seal" id="ritual-seal">—</strong>
+          <button class="primary-button" id="reveal-forecast-button" type="button">
+            Увидеть, что открылось
+          </button>
+        </div>
+
+        <button class="modal-close" type="button" data-close aria-label="Закрыть">×</button>
+      </div>
+    </section>
+
+    <section class="modal hidden" id="seal-modal" role="dialog" aria-modal="true" aria-labelledby="seal-title">
+      <button class="modal-backdrop" type="button" data-close aria-label="Закрыть"></button>
+      <div class="modal-panel compact-modal">
+        <button class="modal-close" type="button" data-close aria-label="Закрыть">×</button>
+        <span class="section-kicker">КРИПТОГРАФИЧЕСКАЯ ПЕЧАТЬ</span>
+        <h2 id="seal-title">Прогноз не менялся.</h2>
+        <p>
+          Эта короткая подпись создана из даты, твоих сигналов и выбранной карты до раскрытия текста.
+          Она не доказывает сверхъестественное — только честность последовательности.
+        </p>
+        <code id="full-forecast-seal">—</code>
+      </div>
+    </section>
+
+    <section class="modal hidden" id="outcome-modal" role="dialog" aria-modal="true" aria-labelledby="outcome-title">
+      <button class="modal-backdrop" type="button" data-close aria-label="Закрыть"></button>
+      <div class="modal-panel compact-modal">
+        <button class="modal-close" type="button" data-close aria-label="Закрыть">×</button>
+        <span class="section-kicker">ЗАКРЫТЬ ПЕТЛЮ</span>
+        <h2 id="outcome-title">Это произошло?</h2>
+        <p id="outcome-question"></p>
+        <div class="outcome-choices">
+          <button type="button" data-outcome="exact">Точно</button>
+          <button type="button" data-outcome="near">Почти</button>
+          <button type="button" data-outcome="miss">Нет</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="modal hidden" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title">
+      <button class="modal-backdrop" type="button" data-close aria-label="Закрыть"></button>
+      <div class="modal-panel compact-modal">
+        <button class="modal-close" type="button" data-close aria-label="Закрыть">×</button>
+        <span class="section-kicker">КАК ЭТО РАБОТАЕТ</span>
+        <h2 id="about-title">Три слоя одной иллюзии.</h2>
+        <div class="truth-list">
+          <div><span class="truth-tag pattern">PATTERN</span><p>Психологический паттерн или наблюдаемая закономерность.</p></div>
+          <div><span class="truth-tag myth">MYTH</span><p>Поэтическая астрология и символический язык.</p></div>
+          <div><span class="truth-tag chance">CHANCE</span><p>Честная случайность, запечатанная до результата.</p></div>
+        </div>
+        <p class="about-note">
+          MOIRÉ — художественный эксперимент о внимании. Не используй его для решений о здоровье,
+          деньгах, безопасности или отношениях.
+        </p>
+      </div>
+    </section>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="install-banner hidden" id="install-banner">
+      <div class="install-icon"><img src="./assets/apple-touch-icon.png" alt="" /></div>
+      <div>
+        <strong>Установить MOIRÉ</strong>
+        <span>Safari → Поделиться → На экран «Домой»</span>
+      </div>
+      <button id="dismiss-install" type="button" aria-label="Закрыть">×</button>
+    </div>
+
+    <audio id="ambient-audio" preload="none" loop playsinline></audio>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
