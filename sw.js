@@ -1,4 +1,4 @@
-const CACHE_NAME = "moire-oracle-v2";
+const CACHE_NAME = "moire-oracle-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,7 +8,8 @@ const APP_SHELL = [
   "./assets/apple-touch-icon.png",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
-  "./assets/moire-icon-1024.png"
+  "./assets/moire-icon-1024.png",
+  "./assets/audio/moire-whisper-loop.mp3"
 ];
 
 self.addEventListener("install", (event) => {
