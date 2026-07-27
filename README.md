@@ -23,9 +23,10 @@ Open `http://127.0.0.1:4173`.
 4. Launch MOIRÉ from the new icon.
 
 Profile, forecasts, sound preference, and chronicle entries stay in local browser
-storage. Exact coordinates are used only in the browser while selecting a public
-nearby place and are never sent to an application server. OpenStreetMap data is
-queried through a public Overpass endpoint.
+storage. Coordinates are sent directly from the browser to public map services
+only while selecting a nearby place; MOIRÉ does not persist them or send them to
+an application server. The app uses a rate-limited OpenStreetMap Nominatim search
+with public Overpass instances as a fallback.
 
 ## Safety and intent
 

@@ -1,5 +1,12 @@
 const STORAGE_KEY = "moire-oracle-state-v1";
 const HOLD_DURATION = 1800;
+const placeSearchCache = new Map();
+let lastNominatimRequestAt = 0;
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter"
+];
 
 const defaults = {
   profile: { name: "", birthDate: "", birthTime: "" },
@@ -638,26 +645,33 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 
 function overpassQuery(latitude, longitude, radius) {
   return `
-    [out:json][timeout:15];
+    [out:json][timeout:8];
     (
-      nwr(around:${radius},${latitude},${longitude})["name"]["tourism"~"artwork|viewpoint"]["access"!~"private|no"];
-      nwr(around:${radius},${latitude},${longitude})["name"]["historic"~"memorial|monument"]["access"!~"private|no"];
-      nwr(around:${radius},${latitude},${longitude})["name"]["leisure"="park"]["access"!~"private|no"];
-      nwr(around:${radius},${latitude},${longitude})["name"]["amenity"~"library|community_centre"]["access"!~"private|no"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["tourism"="artwork"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["leisure"="park"];
     );
-    out center tags 80;
+    out center tags 50;
   `.trim();
 }
 
 function extractPlaces(elements, origin, radius) {
   const permitted = new Set(["artwork", "viewpoint", "memorial", "monument", "park", "library", "community_centre"]);
+  const blockedAccess = new Set(["private", "no", "customers"]);
   return elements
     .map((element) => {
-      const latitude = element.lat ?? element.center?.lat;
-      const longitude = element.lon ?? element.center?.lon;
+      const latitude = Number(element.lat ?? element.center?.lat);
+      const longitude = Number(element.lon ?? element.center?.lon);
       const tags = element.tags || {};
       const category = tags.tourism || tags.historic || tags.leisure || tags.amenity;
-      if (!latitude || !longitude || !tags.name || !permitted.has(category)) return null;
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        !tags.name ||
+        !permitted.has(category) ||
+        blockedAccess.has(tags.access)
+      ) {
+        return null;
+      }
       const distance = Math.round(haversineMeters(origin.latitude, origin.longitude, latitude, longitude));
       if (distance < 100 || distance > radius * 1.12) return null;
       return {
@@ -671,6 +685,139 @@ function extractPlaces(elements, origin, radius) {
     })
     .filter(Boolean)
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function nominatimViewbox(origin, radius) {
+  const latitudeDelta = radius / 111320;
+  const longitudeScale = Math.max(Math.cos((origin.latitude * Math.PI) / 180), 0.2);
+  const longitudeDelta = radius / (111320 * longitudeScale);
+  return [
+    origin.longitude - longitudeDelta,
+    origin.latitude + latitudeDelta,
+    origin.longitude + longitudeDelta,
+    origin.latitude - latitudeDelta
+  ].join(",");
+}
+
+function extractNominatimPlaces(results, origin, radius) {
+  return results
+    .map((result) => {
+      const latitude = Number(result.lat);
+      const longitude = Number(result.lon);
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        !result.name ||
+        result.category !== "leisure" ||
+        result.type !== "park"
+      ) {
+        return null;
+      }
+      const distance = Math.round(haversineMeters(origin.latitude, origin.longitude, latitude, longitude));
+      if (distance < 100 || distance > radius * 1.12) return null;
+      return {
+        id: `${result.osm_type || "place"}-${result.osm_id || result.place_id}`,
+        name: result.name,
+        category: "park",
+        latitude,
+        longitude,
+        distance
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeout = 8000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`place-service-${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("json")) throw new Error("place-service-invalid-response");
+    return await response.json();
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("place-service-timeout");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function searchNominatim(origin, radius) {
+  const rateLimitWait = Math.max(0, 1000 - (Date.now() - lastNominatimRequestAt));
+  if (rateLimitWait) await new Promise((resolve) => window.setTimeout(resolve, rateLimitWait));
+  lastNominatimRequestAt = Date.now();
+
+  const params = new URLSearchParams({
+    format: "jsonv2",
+    q: "[park]",
+    viewbox: nominatimViewbox(origin, radius),
+    bounded: "1",
+    limit: "30",
+    "accept-language": "ru,en"
+  });
+  const data = await fetchJsonWithTimeout(
+    `https://nominatim.openstreetmap.org/search?${params}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    },
+    8000
+  );
+  return extractNominatimPlaces(Array.isArray(data) ? data : [], origin, radius);
+}
+
+async function searchOverpass(origin, radius) {
+  let lastError = null;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const data = await fetchJsonWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+          },
+          body: new URLSearchParams({ data: overpassQuery(origin.latitude, origin.longitude, radius) })
+        },
+        6500
+      );
+      return extractPlaces(data.elements || [], origin, radius);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("place-service-unavailable");
+}
+
+async function searchPublicPlaces(origin, radius) {
+  const cacheKey = `${origin.latitude.toFixed(4)}:${origin.longitude.toFixed(4)}:${radius}`;
+  if (placeSearchCache.has(cacheKey)) return placeSearchCache.get(cacheKey);
+
+  let nominatimAnswered = false;
+  try {
+    const places = await searchNominatim(origin, radius);
+    nominatimAnswered = true;
+    if (places.length) {
+      placeSearchCache.set(cacheKey, places);
+      return places;
+    }
+  } catch {
+    // The lightweight geocoder is allowed to fail over to the POI database below.
+  }
+
+  $("#threshold-status").textContent = "ПРОБУЮ РЕЗЕРВНЫЙ КАРТОГРАФИЧЕСКИЙ УЗЕЛ";
+  try {
+    const places = await searchOverpass(origin, radius);
+    if (places.length) placeSearchCache.set(cacheKey, places);
+    return places;
+  } catch (error) {
+    if (nominatimAnswered) return [];
+    throw error;
+  }
 }
 
 async function findThreshold() {
@@ -694,14 +841,7 @@ async function findThreshold() {
       latitude: position.coords.latitude,
       longitude: position.coords.longitude
     };
-    const response = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: new URLSearchParams({ data: overpassQuery(origin.latitude, origin.longitude, currentThreshold.radius) })
-    });
-    if (!response.ok) throw new Error(`overpass-${response.status}`);
-    const data = await response.json();
-    const places = extractPlaces(data.elements || [], origin, currentThreshold.radius);
+    const places = await searchPublicPlaces(origin, currentThreshold.radius);
     if (!places.length) throw new Error("no-public-places");
 
     const choiceSeed = stringHash(`${currentThreshold.seal}|${places.map((place) => place.id).join(",")}`);
@@ -716,6 +856,8 @@ async function findThreshold() {
       showToast("Без доступа к геопозиции MOIRÉ не может выбрать публичное место рядом.");
     } else if (error?.message === "no-public-places") {
       showToast("В этом радиусе не нашлось подходящих публичных мест. Выбери больший радиус.");
+    } else if (error?.message === "place-service-timeout") {
+      showToast("Картографические узлы не ответили вовремя. Интернет есть, но слой перегружен — попробуй ещё раз.");
     } else {
       showToast("Городской слой сейчас молчит. Проверь интернет и попробуй снова.");
     }
@@ -740,7 +882,7 @@ function revealThresholdPlace(place) {
   $("#map-oracle").classList.add("has-point");
   $("#threshold-status").textContent = "ПОРОГ ВЫБРАН ИЗ ПУБЛИЧНЫХ POI";
   $("#place-name").textContent = place.name;
-  $("#place-meta").textContent = `${categoryLabel(place.category)} · около ${place.distance} м · проверь доступность и маршрут`;
+  $("#place-meta").textContent = `${categoryLabel(place.category)} · около ${place.distance} м · данные © участники OpenStreetMap · проверь доступность и маршрут`;
   $("#find-threshold-button").classList.add("hidden");
   const link = $("#open-map-link");
   link.href = `https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=18/${place.latitude}/${place.longitude}`;
