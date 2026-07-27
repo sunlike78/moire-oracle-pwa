@@ -4,6 +4,11 @@ MOIRÉ is an iPhone-first progressive web app prototype: a personal probability
 oracle with daily rituals, transparent `PATTERN / MYTH / CHANCE` labels, and a
 safe nearby-place experiment powered by public OpenStreetMap points of interest.
 
+The daily experience includes a return loop: the user chooses a sigil, receives
+an attention mission, waits for a sealed Echo, records how it matched reality,
+and earns a variable-rarity fragment in the Chronicle. The timer and soundtrack
+survive reloads and are cached for offline use.
+
 ## Run locally
 
 Serve the directory over HTTP so the service worker and geolocation behavior
@@ -26,7 +31,8 @@ Profile, forecasts, sound preference, and chronicle entries stay in local browse
 storage. Coordinates are sent directly from the browser to public map services
 only while selecting a nearby place; MOIRÉ does not persist them or send them to
 an application server. The app uses a rate-limited OpenStreetMap Nominatim search
-with public Overpass instances as a fallback.
+for parks, monuments, memorials, and public artwork, with public Overpass
+instances as a fallback.
 
 ## Safety and intent
 

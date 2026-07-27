@@ -43,8 +43,9 @@
         </button>
 
         <div class="top-actions">
-          <button class="icon-button" id="sound-toggle" type="button" aria-label="Включить звук">
-            <span class="sound-icon" aria-hidden="true"></span>
+          <button class="sound-toggle" id="sound-toggle" type="button" aria-label="Выключить звук">
+            <span class="sound-glyph" aria-hidden="true">🔊</span>
+            <span class="sound-label">ЗВУК</span>
           </button>
           <button class="avatar-button" id="profile-button" type="button" aria-label="Профиль">
             <span id="avatar-letter">○</span>
@@ -112,6 +113,76 @@
                 <span class="mini-orbit" aria-hidden="true"></span>
               </div>
             </article>
+
+            <section class="daily-loop" id="daily-loop" aria-labelledby="daily-loop-title">
+              <div class="loop-header">
+                <div>
+                  <span class="section-kicker">ПЕТЛЯ ВОЗВРАЩЕНИЯ</span>
+                  <h3 id="daily-loop-title">Оставь дню незакрытый вопрос.</h3>
+                </div>
+                <span class="loop-progress" id="loop-progress">0/3</span>
+              </div>
+
+              <div class="loop-stage" id="loop-symbol-stage">
+                <span class="loop-step">ШАГ 01 · ЛИЧНЫЙ СИМВОЛ</span>
+                <p id="loop-symbol-copy">Не анализируй. Выбери знак, который первым показался знакомым.</p>
+                <div class="sigil-choices" role="group" aria-label="Выбор личного символа">
+                  <button type="button" data-sigil="circle" aria-label="Круг">
+                    <span aria-hidden="true">◯</span>
+                    <small>КРУГ</small>
+                  </button>
+                  <button type="button" data-sigil="rift" aria-label="Разлом">
+                    <span aria-hidden="true">⌁</span>
+                    <small>РАЗЛОМ</small>
+                  </button>
+                  <button type="button" data-sigil="three" aria-label="Три точки">
+                    <span aria-hidden="true">∴</span>
+                    <small>ТРИ ТОЧКИ</small>
+                  </button>
+                </div>
+              </div>
+
+              <div class="loop-stage hidden" id="loop-mission-stage">
+                <span class="loop-step">ШАГ 02 · КОНТРАКТ ВНИМАНИЯ</span>
+                <div class="mission-seal">
+                  <span id="mission-sigil" aria-hidden="true">◯</span>
+                  <div>
+                    <small>ТВОЯ МИССИЯ ДО ЭХА</small>
+                    <strong id="mission-copy">—</strong>
+                  </div>
+                </div>
+                <div class="echo-lock" id="echo-lock">
+                  <span>ЭХО ЗАПЕЧАТАНО</span>
+                  <strong id="echo-countdown">18:00</strong>
+                  <small>Можно закрыть приложение. Таймер продолжится.</small>
+                </div>
+                <button class="secondary-button hidden" id="reveal-echo-button" type="button">
+                  <span>
+                    <small>ЭХО СОЗРЕЛО</small>
+                    Распечатать второй сигнал
+                  </span>
+                  <span aria-hidden="true">↯</span>
+                </button>
+              </div>
+
+              <div class="loop-stage hidden" id="loop-echo-stage">
+                <span class="loop-step">ШАГ 03 · ЭХО</span>
+                <blockquote id="echo-copy">—</blockquote>
+                <p>Как этот сигнал лёг на реальность?</p>
+                <div class="echo-outcomes" role="group" aria-label="Закрыть дневную петлю">
+                  <button type="button" data-echo-outcome="exact">Совпало</button>
+                  <button type="button" data-echo-outcome="near">Зацепило</button>
+                  <button type="button" data-echo-outcome="miss">Мимо</button>
+                </div>
+              </div>
+
+              <div class="loop-stage loop-complete hidden" id="loop-complete-stage">
+                <span class="loop-step">ПЕТЛЯ ЗАМКНУТА</span>
+                <div class="fragment-mark" id="fragment-mark">Φ-000</div>
+                <h4 id="fragment-title">Фрагмент сохранён в Хронике.</h4>
+                <p id="fragment-copy">Завтра система свяжет новый сигнал с сегодняшним выбором.</p>
+              </div>
+            </section>
 
             <div class="signal-grid">
               <article class="signal-card compact-card">
@@ -254,6 +325,7 @@
               <span>Найти безопасный Порог</span>
               <span class="button-glyph" aria-hidden="true">⌖</span>
             </button>
+            <p class="threshold-availability hidden" id="threshold-availability" role="status"></p>
             <a class="secondary-button hidden" id="open-map-link" href="#" target="_blank" rel="noopener">
               <span>
                 <small>ОТКРЫТЬ В OPENSTREETMAP</small>
@@ -322,7 +394,8 @@
       <nav class="bottom-nav" aria-label="Основная навигация">
         <button class="nav-item is-active" type="button" data-target="today" aria-current="page">
           <span class="nav-icon sun-glyph" aria-hidden="true"></span>
-          <span>Сегодня</span>
+          <span id="today-nav-label">Сегодня</span>
+          <span class="nav-alert hidden" id="echo-nav-alert" aria-hidden="true"></span>
         </button>
         <button class="nav-item threshold-nav" type="button" data-target="threshold">
           <span class="nav-portal" aria-hidden="true">⌁</span>
@@ -344,6 +417,10 @@
         <p class="sheet-intro">
           Данные остаются в этом браузере. Они влияют на словарь и последовательность ритуалов,
           но не предсказывают будущее.
+        </p>
+        <p class="profile-impact">
+          Если сегодняшний день уже открыт, новый ключ сразу создаст другую печать,
+          пересоберёт прогноз и начнёт дневную петлю заново.
         </p>
         <form id="profile-form">
           <label>
@@ -495,7 +572,9 @@
       <button id="dismiss-install" type="button" aria-label="Закрыть">×</button>
     </div>
 
-    <audio id="ambient-audio" preload="none" loop playsinline></audio>
+    <audio id="ambient-audio" preload="auto" loop playsinline>
+      <source src="./assets/audio/moire-whisper-loop.mp3" type="audio/mpeg" />
+    </audio>
 
     <script src="./app.js" defer></script>
   </body>
