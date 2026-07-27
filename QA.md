@@ -29,7 +29,19 @@ Last local run: 2026-07-28, clean origin, mobile viewport.
   selected result was a named OpenStreetMap park with a valid map URL.
 - Expanded Nominatim fallbacks returned named memorial / monument and artwork
   candidates when park results were intentionally skipped.
-- Service worker `moire-oracle-v3` cached all ten app-shell resources, including
+- A saved profile was present identically in local storage and the IndexedDB
+  protection vault.
+- Removing the primary local-storage record and reloading restored the complete
+  profile, a forecast sentinel, and a Chronicle entry automatically from the
+  vault, then recreated the primary record.
+- Replacing the primary record with invalid JSON also restored the complete
+  profile automatically from the vault.
+- A valid exported-backup fixture restored name, birth date, and birth time
+  through the real file chooser and confirmation flow.
+- Invalid backup data was rejected without replacing current state.
+- The explicit full-reset flow removed both the primary record and the IndexedDB
+  mirror after confirmation.
+- Service worker `moire-oracle-v4` cached all ten app-shell resources, including
   the audio file.
 - With the network forced offline, the app reloaded through the service worker
   and the cached 80-second MP3 remained fully decodable (`readyState=4`).
