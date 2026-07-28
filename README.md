@@ -4,6 +4,8 @@ MOIRÉ is an iPhone-first progressive web app prototype: a personal probability
 oracle with daily rituals, transparent `PATTERN / MYTH / CHANCE` labels, and a
 sealed nearby-place experiment powered by public OpenStreetMap points of interest.
 
+[Open the live app](https://sunlike78.github.io/moire-oracle-pwa/)
+
 The daily experience includes a return loop: the user chooses a sigil, receives
 an attention mission, waits three minutes for a sealed Echo, records how it
 matched reality, and earns a variable-rarity fragment in the Chronicle. An Echo
@@ -15,6 +17,13 @@ exact / near / miss plus one detail, and receives a unique `Π` fragment. Seven
 completed Thresholds form a constellation, and the latest fragment and note
 change the next daily forecast. A no-GPS home Threshold provides a full offline
 fallback instead of a dead end.
+
+The live Reality channel changes its language when the user opens a route,
+returns from Maps, comes back after a pause, matures an Echo, loses connectivity,
+arrives, or closes a loop. A persistent bell opens signal settings. Apple Maps is
+the primary walking-route action, with Google Maps and OpenStreetMap as explicit
+alternatives. Opening a route is recorded locally so returning to MOIRÉ resumes
+the same sealed expedition.
 
 ## Run locally
 
@@ -33,6 +42,21 @@ Open `http://127.0.0.1:4173`.
 2. Tap **Share**.
 3. Tap **Add to Home Screen**.
 4. Launch MOIRÉ from the new icon.
+
+On iOS/iPadOS 16.4 or later, launch the installed Home Screen app, tap the bell,
+and choose **Разрешить сигналы**. The app never asks on first load: the operating
+system permission appears only after that deliberate tap. While MOIRÉ is active,
+the three-minute Echo and the twelve-minute open-Threshold reminder can show a
+service-worker notification. The service worker also contains the standard Web
+Push receive and notification-click handlers.
+
+The current static GitHub Pages deployment has no subscription relay or push
+sender. Consequently, an iPhone that has completely suspended or closed the app
+cannot be woken by the local timers alone. Reliable closed-app delivery requires
+connecting the existing service worker to an external Web Push application
+server. The in-app Reality channel, return detection, route persistence, badge
+state, and notifications while the app remains active do not depend on that
+server.
 
 Profile, forecasts, sound preference, and chronicle entries stay on the device.
 Every update is written to local storage and mirrored automatically in IndexedDB.

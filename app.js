@@ -20,10 +20,18 @@ const defaults = {
   profile: { name: "", birthDate: "", birthTime: "" },
   soundEnabled: true,
   soundPreferenceSet: false,
+  notificationsEnabled: true,
+  notificationPreferenceSet: false,
   installDismissed: false,
   daily: {},
   chronicle: [],
-  activeThreshold: null
+  activeThreshold: null,
+  reality: {
+    lastSeenAt: null,
+    visits: 0,
+    lastSignalId: "",
+    notificationKeys: []
+  }
 };
 
 const forecastBank = {
@@ -175,6 +183,69 @@ const homeThresholdBank = {
   ]
 };
 
+const realityVoiceBank = {
+  first: [
+    "Ты открыл канал. Теперь день знает, куда вернуть ответ.",
+    "Экран проснулся раньше вопроса. Не спеши объяснять это.",
+    "Контур активен. Первая случайность уже не будет совсем случайной."
+  ],
+  return: [
+    ({ minutes }) => `Тебя не было ${minutes} мин. Контур не исчез — он только перестал шуметь.`,
+    ({ minutes }) => `${minutes} мин вне экрана. Что изменилось первым, когда ты вернулся?`,
+    ({ minutes }) => `За ${minutes} мин реальность успела продолжиться без MOIRÉ. Сверь первую деталь.`
+  ],
+  echoWaiting: [
+    ({ remaining }) => `До Эха ${remaining}. Не смотри на таймер — смотри, что повторится.`,
+    ({ remaining }) => `Сигнал запечатан ещё на ${remaining}. Окружение уже участвует.`,
+    ({ remaining }) => `${remaining} до второго сигнала. Первая замеченная странность считается.`
+  ],
+  echoReady: [
+    "Три минуты прошли. Эхо больше не запечатано.",
+    "Второй сигнал созрел именно пока ты смотрел в другую сторону.",
+    "Пауза закончилась. Теперь реальность должна ответить первой."
+  ],
+  route: [
+    ({ place }) => `Карта знает дорогу к «${place}». Печать уже не изменится.`,
+    ({ place }) => `«${place}» существовало до запроса. Теперь между вами есть маршрут.`,
+    ({ place }) => `Точка передана карте: ${place}. Вернись после прибытия — не раньше.`
+  ],
+  routeReturn: [
+    ({ place }) => `Ты вернулся из карты. «${place}» всё ещё ждёт сверки.`,
+    ({ place }) => `Маршрут закрылся, но точка осталась: ${place}.`,
+    ({ place }) => `Карта отдала тебя обратно MOIRÉ. Следующий жест — «Я у Порога».`
+  ],
+  thresholdReady: [
+    ({ place, distance }) => `Город ответил: «${place}», около ${distance} м по прямой.`,
+    ({ place }) => `Из всех доступных точек печать удержала одну: ${place}.`,
+    ({ place }) => `Место раскрыто — ${place}. Три знака были выбраны раньше него.`
+  ],
+  arrived: [
+    "Геопозиция совпала с контуром. Теперь телефон больше ничего не решает.",
+    "Ты внутри радиуса. Смотри не на экран, а на первую лишнюю деталь.",
+    "Порог признал прибытие. Осталась только честная сверка."
+  ],
+  completed: [
+    ({ fragment }) => `${fragment} сохранён. Завтрашний день уже получил этот след.`,
+    ({ fragment }) => `Реальность ответила фрагментом ${fragment}. Он появится в следующей печати.`,
+    ({ fragment }) => `${fragment}: совпадение больше нельзя переписать задним числом.`
+  ],
+  online: [
+    "Городской слой снова на линии. Незавершённая точка сохранилась.",
+    "Связь вернулась. Печать не менялась, пока сеть молчала."
+  ],
+  offline: [
+    "Сеть исчезла. Личный контур и Хроника остались на устройстве.",
+    "Городской слой замолчал. Домашний Порог всё ещё доступен."
+  ],
+  quiet: [
+    "Сейчас ничего не требуется. Заметь, какую деталь ты выбрал сам.",
+    "Если знак приходится искать слишком долго, это уже не знак.",
+    "Пауза тоже часть ответа. Не заполняй её первым объяснением.",
+    "Время на экране и время вокруг тебя идут немного разными путями.",
+    "Первое совпадение притягивает внимание. Первый промах сохраняет честность."
+  ]
+};
+
 const initialLocalState = readLocalState();
 let state = initialLocalState.state;
 let currentRitual = { energy: "", card: null, holdMs: 0, seal: "", forecast: null };
@@ -193,6 +264,11 @@ let ambientStarted = false;
 let ambientStarting = false;
 let vaultWriteQueue = Promise.resolve(true);
 let persistenceRequested = false;
+let notificationTimers = [];
+let notificationDeliveriesInFlight = new Set();
+let realityTimer = null;
+let hiddenAt = null;
+let serviceWorkerRegistration = null;
 let storageProtection = {
   localFound: initialLocalState.found,
   localCorrupt: initialLocalState.corrupt,
@@ -225,7 +301,11 @@ function createThresholdState() {
     completedAt: null,
     outcome: null,
     note: "",
-    fragmentId: ""
+    fragmentId: "",
+    navigationStartedAt: null,
+    navigationProvider: "",
+    reminderAt: null,
+    reminderNotifiedAt: null
   };
 }
 
@@ -275,14 +355,23 @@ function normalizeThreshold(saved) {
     completedAt: typeof saved.completedAt === "string" ? saved.completedAt : null,
     outcome: ["exact", "near", "miss"].includes(saved.outcome) ? saved.outcome : null,
     note: typeof saved.note === "string" ? saved.note.slice(0, 160) : "",
-    fragmentId: typeof saved.fragmentId === "string" ? saved.fragmentId : ""
+    fragmentId: typeof saved.fragmentId === "string" ? saved.fragmentId : "",
+    navigationStartedAt: typeof saved.navigationStartedAt === "string" ? saved.navigationStartedAt : null,
+    navigationProvider: ["apple", "google", "osm"].includes(saved.navigationProvider)
+      ? saved.navigationProvider
+      : "",
+    reminderAt: Number.isFinite(Number(saved.reminderAt)) ? Number(saved.reminderAt) : null,
+    reminderNotifiedAt:
+      typeof saved.reminderNotifiedAt === "string" ? saved.reminderNotifiedAt : null
   };
 }
 
 function normalizeState(saved) {
   const source = isPlainObject(saved) ? saved : {};
   const sourceProfile = isPlainObject(source.profile) ? source.profile : {};
+  const sourceReality = isPlainObject(source.reality) ? source.reality : {};
   const hasSoundPreference = source.soundPreferenceSet === true;
+  const hasNotificationPreference = source.notificationPreferenceSet === true;
 
   return {
     profile: {
@@ -292,10 +381,22 @@ function normalizeState(saved) {
     },
     soundEnabled: hasSoundPreference ? source.soundEnabled !== false : true,
     soundPreferenceSet: hasSoundPreference,
+    notificationsEnabled: hasNotificationPreference ? source.notificationsEnabled !== false : true,
+    notificationPreferenceSet: hasNotificationPreference,
     installDismissed: source.installDismissed === true,
     daily: isPlainObject(source.daily) ? source.daily : {},
     chronicle: Array.isArray(source.chronicle) ? source.chronicle : [],
-    activeThreshold: normalizeThreshold(source.activeThreshold)
+    activeThreshold: normalizeThreshold(source.activeThreshold),
+    reality: {
+      lastSeenAt: typeof sourceReality.lastSeenAt === "string" ? sourceReality.lastSeenAt : null,
+      visits: Number.isFinite(Number(sourceReality.visits))
+        ? Math.max(0, Math.floor(Number(sourceReality.visits)))
+        : 0,
+      lastSignalId: typeof sourceReality.lastSignalId === "string" ? sourceReality.lastSignalId : "",
+      notificationKeys: Array.isArray(sourceReality.notificationKeys)
+        ? sourceReality.notificationKeys.filter((item) => typeof item === "string").slice(-30)
+        : []
+    }
   };
 }
 
@@ -679,6 +780,420 @@ function showToast(message) {
   toast.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.add("hidden"), 3200);
+}
+
+function isIOSDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandaloneMode() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function notificationCapability() {
+  return (
+    "Notification" in window &&
+    "serviceWorker" in navigator &&
+    "ServiceWorkerRegistration" in window &&
+    "showNotification" in ServiceWorkerRegistration.prototype
+  );
+}
+
+function formatSignalTime(date = new Date()) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatCompactDuration(milliseconds) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function emitRealitySignal(kind, payload = {}, options = {}) {
+  const bank = realityVoiceBank[kind] || realityVoiceBank.quiet;
+  if (!bank.length) return "";
+  const seed = stringHash(
+    [
+      todayKey(),
+      kind,
+      state.reality.visits,
+      state.reality.lastSignalId,
+      payload.place || "",
+      payload.fragment || "",
+      Math.floor(Date.now() / (options.stableForMs || 60000))
+    ].join("|")
+  );
+  let index = seed % bank.length;
+  let signalId = `${kind}-${index}`;
+  if (signalId === state.reality.lastSignalId && bank.length > 1) {
+    index = (index + 1) % bank.length;
+    signalId = `${kind}-${index}`;
+  }
+  const source = bank[index];
+  const copy = typeof source === "function" ? source(payload) : source;
+  const wire = $("#reality-wire");
+  if (!wire) return copy;
+
+  $("#reality-wire-copy").textContent = copy;
+  $("#reality-wire-meta").textContent = `${options.label || "ЖИВОЙ СИГНАЛ"} · ${formatSignalTime()}`;
+  wire.classList.toggle("has-arrival", options.priority === "high");
+  wire.animate?.(
+    [
+      { opacity: 0.58, transform: "translateY(-2px)" },
+      { opacity: 1, transform: "translateY(0)" }
+    ],
+    { duration: 430, easing: "ease-out" }
+  );
+  state.reality.lastSignalId = signalId;
+  if (options.sound && state.soundEnabled) playTone(options.sound);
+  if (options.vibrate) vibrate(options.vibrate);
+  return copy;
+}
+
+function updateRealityFromCurrentState() {
+  const returnRecord = forecastForReturn();
+  const loop = returnRecord?.forecast?.loop;
+  if (loop && !loop.closedAt && (loop.revealedAt || Date.now() >= loop.unlockAt)) {
+    emitRealitySignal("echoReady", {}, { label: "ЭХО СОЗРЕЛО", priority: "high" });
+    return;
+  }
+  if (loop && !loop.closedAt) {
+    emitRealitySignal(
+      "echoWaiting",
+      { remaining: formatCompactDuration(loop.unlockAt - Date.now()) },
+      { label: "КОНТРАКТ ВНИМАНИЯ", stableForMs: 15000 }
+    );
+    return;
+  }
+  if (currentThreshold.status === "revealed" && currentThreshold.place && !currentThreshold.place.home) {
+    emitRealitySignal(
+      currentThreshold.navigationStartedAt ? "routeReturn" : "thresholdReady",
+      {
+        place: currentThreshold.place.name,
+        distance: currentThreshold.place.distance
+      },
+      { label: "ПОРОГ ЖДЁТ", priority: "high" }
+    );
+    return;
+  }
+  emitRealitySignal("quiet", {}, { label: "РЕАЛЬНОСТЬ НА ЛИНИИ", stableForMs: 90000 });
+}
+
+async function getServiceWorkerRegistration() {
+  if (!("serviceWorker" in navigator)) return null;
+  if (serviceWorkerRegistration) return serviceWorkerRegistration;
+  try {
+    serviceWorkerRegistration = await navigator.serviceWorker.register("./sw.js");
+    await navigator.serviceWorker.ready;
+    return serviceWorkerRegistration;
+  } catch {
+    return null;
+  }
+}
+
+async function updateAppBadge() {
+  if (!("setAppBadge" in navigator)) return;
+  const readyEchoes = Object.values(state.daily).filter((forecast) => {
+    const loop = forecast?.loop;
+    return loop && !loop.closedAt && Date.now() >= loop.unlockAt;
+  }).length;
+  const waitingThreshold =
+    currentThreshold.status === "revealed" && currentThreshold.place && !currentThreshold.place.home
+      ? 1
+      : 0;
+  const count = readyEchoes + waitingThreshold;
+  try {
+    if (count) await navigator.setAppBadge(count);
+    else await navigator.clearAppBadge?.();
+  } catch {
+    // Badging is optional and controlled by the operating system.
+  }
+}
+
+function updateNotificationUI() {
+  const supported = notificationCapability();
+  const permission = supported ? Notification.permission : "unsupported";
+  const needsInstall = isIOSDevice() && !isStandaloneMode();
+  const live = supported && permission === "granted" && state.notificationsEnabled;
+  const topButton = $("#signal-toggle");
+  const card = $(".signal-permission-card");
+  const enableButton = $("#enable-notifications-button");
+  const testButton = $("#test-notification-button");
+  if (!topButton || !card || !enableButton || !testButton) return;
+
+  topButton.classList.toggle("is-live", live);
+  topButton.setAttribute(
+    "aria-label",
+    live ? "Уведомления включены — открыть настройки" : "Настроить уведомления"
+  );
+  card.classList.toggle("is-live", live);
+  testButton.classList.toggle("hidden", !live);
+  enableButton.classList.toggle("hidden", live);
+
+  if (!supported) {
+    $("#notification-status-kicker").textContent = "КАНАЛ НЕДОСТУПЕН";
+    $("#notification-status-title").textContent = "Этот браузер не поддерживает сигналы";
+    $("#notification-status-copy").textContent =
+      "Живые обращения останутся внутри MOIRÉ, но системных баннеров здесь не будет.";
+    enableButton.classList.add("hidden");
+  } else if (needsInstall) {
+    $("#notification-status-kicker").textContent = "НУЖНА ИКОНКА «ДОМОЙ»";
+    $("#notification-status-title").textContent = "Сначала установи MOIRÉ";
+    $("#notification-status-copy").textContent =
+      "На iPhone уведомления доступны только приложению, запущенному с экрана «Домой».";
+    enableButton.querySelector("span").textContent = "Показать установку";
+  } else if (permission === "denied") {
+    $("#notification-status-kicker").textContent = "КАНАЛ ЗАБЛОКИРОВАН";
+    $("#notification-status-title").textContent = isIOSDevice()
+      ? "iPhone не пропускает сигналы"
+      : "Браузер не пропускает сигналы";
+    $("#notification-status-copy").textContent =
+      isIOSDevice()
+        ? "Открой «Настройки» → «Уведомления» → MOIRÉ и разреши баннеры и звук."
+        : "Разреши уведомления для этого сайта в настройках браузера.";
+    enableButton.classList.add("hidden");
+  } else if (live) {
+    $("#notification-status-kicker").textContent = "КАНАЛ ОТКРЫТ";
+    $("#notification-status-title").textContent = "Реальность может заговорить первой";
+    $("#notification-status-copy").textContent =
+      "Эхо и незавершённый Порог получили право подать системный сигнал.";
+  } else {
+    $("#notification-status-kicker").textContent = "КАНАЛ ГОТОВ";
+    $("#notification-status-title").textContent = "Осталось одно разрешение";
+    $("#notification-status-copy").textContent =
+      "iPhone сам спросит, можно ли MOIRÉ показывать уведомления.";
+    enableButton.querySelector("span").textContent = "Разрешить сигналы";
+  }
+
+  $("#notification-footnote").textContent =
+    "Разрешение контролирует iPhone. Мгновенные сигналы уже работают; доставка после полного закрытия требует активного фонового push-канала.";
+}
+
+async function showSystemNotification(key, title, body, options = {}) {
+  const deliveryKey = key || options.tag || "moire-signal";
+  if (
+    !notificationCapability() ||
+    Notification.permission !== "granted" ||
+    !state.notificationsEnabled ||
+    (key && state.reality.notificationKeys.includes(key)) ||
+    notificationDeliveriesInFlight.has(deliveryKey)
+  ) {
+    return false;
+  }
+  notificationDeliveriesInFlight.add(deliveryKey);
+  const registration = await getServiceWorkerRegistration();
+  if (!registration) {
+    notificationDeliveriesInFlight.delete(deliveryKey);
+    return false;
+  }
+  try {
+    await registration.showNotification(title, {
+      body,
+      icon: "./assets/icon-192.png",
+      badge: "./assets/icon-192.png",
+      tag: options.tag || key || "moire-signal",
+      renotify: options.renotify !== false,
+      silent: false,
+      data: {
+        url: options.url || "./",
+        signal: options.signal || "reality"
+      }
+    });
+    if (key) {
+      state.reality.notificationKeys = [...state.reality.notificationKeys, key].slice(-30);
+      await saveState();
+    }
+    await updateAppBadge();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    notificationDeliveriesInFlight.delete(deliveryKey);
+  }
+}
+
+async function enableNotifications() {
+  if (!notificationCapability()) {
+    showToast("Этот браузер не поддерживает системные уведомления.");
+    return;
+  }
+  if (isIOSDevice() && !isStandaloneMode()) {
+    $("#install-banner").classList.remove("hidden");
+    closeLayer($("#signals-sheet"));
+    showToast("Сначала: Safari → Поделиться → На экран «Домой».");
+    return;
+  }
+
+  const permission =
+    Notification.permission === "default"
+      ? await Notification.requestPermission()
+      : Notification.permission;
+  state.notificationPreferenceSet = true;
+  state.notificationsEnabled = permission === "granted";
+  await saveState();
+  updateNotificationUI();
+
+  if (permission === "granted") {
+    emitRealitySignal("first", {}, {
+      label: "КАНАЛ ОТКРЫТ",
+      priority: "high",
+      sound: "reveal",
+      vibrate: [18, 45, 26]
+    });
+    await showSystemNotification(
+      `permission-${Date.now()}`,
+      "MOIRÉ · канал открыт",
+      "Первый сигнал принят. Следующий появится не по твоему касанию.",
+      { tag: "moire-permission", signal: "permission" }
+    );
+    armPendingNotifications();
+  } else if (permission === "denied") {
+    showToast("iPhone заблокировал канал. Его можно включить в настройках уведомлений.");
+  }
+}
+
+async function sendTestNotification() {
+  const delivered = await showSystemNotification(
+    `test-${Date.now()}`,
+    "MOIRÉ · реальность на линии",
+    "Это пробный сигнал. Следующий будет связан с твоим Эхом или Порогом.",
+    { tag: `moire-test-${Date.now()}`, signal: "test" }
+  );
+  showToast(delivered ? "Пробный сигнал передан iPhone." : "iPhone не принял пробный сигнал.");
+}
+
+function clearNotificationTimers() {
+  notificationTimers.forEach((timer) => window.clearTimeout(timer));
+  notificationTimers = [];
+}
+
+async function notifyEchoReady(key, forecast) {
+  const loop = forecast?.loop;
+  if (!loop || loop.closedAt || loop.echoNotifiedAt) return;
+  const shouldEmitLiveSignal = !loop.echoLiveSignaledAt;
+  if (shouldEmitLiveSignal) loop.echoLiveSignaledAt = new Date().toISOString();
+  const delivered = await showSystemNotification(
+    `echo-${key}-${loop.fragmentId}`,
+    "MOIRÉ · Эхо созрело",
+    "Три минуты прошли. Второй сигнал больше не запечатан.",
+    { tag: `moire-echo-${key}`, signal: "echo", url: `./?signal=echo&day=${encodeURIComponent(key)}` }
+  );
+  if (delivered) {
+    loop.echoNotifiedAt = new Date().toISOString();
+  }
+  if (delivered || shouldEmitLiveSignal) await saveState();
+  if (shouldEmitLiveSignal) {
+    emitRealitySignal("echoReady", {}, {
+      label: "ЭХО СОЗРЕЛО",
+      priority: "high",
+      sound: document.hidden ? null : "reveal"
+    });
+  }
+  updateReturnCue();
+}
+
+async function notifyThresholdWaiting() {
+  if (
+    currentThreshold.status !== "revealed" ||
+    !currentThreshold.place ||
+    currentThreshold.place.home ||
+    currentThreshold.reminderNotifiedAt
+  ) {
+    return;
+  }
+  const delivered = await showSystemNotification(
+    `threshold-${currentThreshold.id}-waiting`,
+    "MOIRÉ · Порог всё ещё открыт",
+    `${currentThreshold.place.name} сохранилось в печати. Маршрут не изменился.`,
+    { tag: `moire-threshold-${currentThreshold.id}`, signal: "threshold", url: "./?signal=threshold" }
+  );
+  if (delivered) {
+    currentThreshold.reminderNotifiedAt = new Date().toISOString();
+    await persistActiveThreshold();
+  }
+}
+
+function armPendingNotifications() {
+  clearNotificationTimers();
+  Object.entries(state.daily).forEach(([key, forecast]) => {
+    const loop = forecast?.loop;
+    if (!loop || loop.closedAt || loop.echoNotifiedAt) return;
+    const wait = Math.max(0, loop.unlockAt - Date.now());
+    const timer = window.setTimeout(() => notifyEchoReady(key, forecast), Math.min(wait, 2147483000));
+    notificationTimers.push(timer);
+  });
+
+  if (
+    currentThreshold.status === "revealed" &&
+    currentThreshold.place &&
+    !currentThreshold.place.home &&
+    currentThreshold.reminderAt &&
+    !currentThreshold.reminderNotifiedAt
+  ) {
+    const wait = Math.max(0, currentThreshold.reminderAt - Date.now());
+    const timer = window.setTimeout(notifyThresholdWaiting, Math.min(wait, 2147483000));
+    notificationTimers.push(timer);
+  }
+  updateAppBadge();
+}
+
+async function trackRouteOpen(provider) {
+  if (!currentThreshold.place || currentThreshold.place.home) return;
+  currentThreshold.navigationStartedAt = new Date().toISOString();
+  currentThreshold.navigationProvider = provider;
+  currentThreshold.reminderAt ||= Date.now() + 12 * 60 * 1000;
+  await persistActiveThreshold();
+  emitRealitySignal(
+    "route",
+    { place: currentThreshold.place.name },
+    { label: "МАРШРУТ ОТКРЫТ", priority: "high", sound: "select" }
+  );
+  armPendingNotifications();
+}
+
+function handleVisibilityReturn() {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    state.reality.lastSeenAt = new Date().toISOString();
+    return;
+  }
+  const awayMilliseconds = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = null;
+  state.reality.lastSeenAt = new Date().toISOString();
+  state.reality.visits += 1;
+
+  const returnRecord = forecastForReturn();
+  const loop = returnRecord?.forecast?.loop;
+  if (loop && !loop.closedAt && Date.now() >= loop.unlockAt) {
+    notifyEchoReady(returnRecord.key, returnRecord.forecast);
+  } else if (
+    currentThreshold.status === "revealed" &&
+    currentThreshold.navigationStartedAt &&
+    currentThreshold.place &&
+    !currentThreshold.place.home
+  ) {
+    emitRealitySignal(
+      "routeReturn",
+      { place: currentThreshold.place.name },
+      { label: "ТЫ ВЕРНУЛСЯ", priority: "high", sound: "tap" }
+    );
+  } else if (awayMilliseconds >= 2 * 60 * 1000) {
+    emitRealitySignal(
+      "return",
+      { minutes: Math.max(2, Math.round(awayMilliseconds / 60000)) },
+      { label: "ВОЗВРАЩЕНИЕ", priority: "high" }
+    );
+  } else {
+    updateRealityFromCurrentState();
+  }
+  saveState();
+  armPendingNotifications();
 }
 
 function setView(target) {
@@ -1243,6 +1758,7 @@ function renderDailyLoop(forecast = state.daily[todayKey()]) {
     if (ready && echoTimer) {
       clearInterval(echoTimer);
       echoTimer = null;
+      notifyEchoReady(activeLoopKey || todayKey(), forecast);
       updateReturnCue(forecast);
       renderExistingDaily();
     }
@@ -1284,6 +1800,12 @@ function selectDailySigil(sigil) {
   saveState();
   renderDailyLoop(forecast);
   renderExistingDaily();
+  emitRealitySignal(
+    "echoWaiting",
+    { remaining: "3:00" },
+    { label: "КОНТРАКТ ПРИНЯТ", priority: "high" }
+  );
+  armPendingNotifications();
   playTone("seal");
   vibrate([15, 35, 18]);
   showToast("Контракт принят. Первое Эхо созреет через 3 минуты — возвращение завершит цепь.");
@@ -1304,6 +1826,11 @@ function revealDailyEcho() {
   saveState();
   renderDailyLoop(forecast);
   renderExistingDaily();
+  emitRealitySignal("echoReady", {}, {
+    label: "ВТОРОЙ СИГНАЛ",
+    priority: "high"
+  });
+  updateAppBadge();
   playTone("reveal");
   vibrate([20, 45, 30]);
 }
@@ -1333,6 +1860,12 @@ function closeDailyLoop(outcome) {
   renderDailyLoop(forecast);
   renderExistingDaily();
   renderChronicle();
+  emitRealitySignal(
+    "completed",
+    { fragment: loop.fragmentId },
+    { label: "ПЕТЛЯ ЗАМКНУТА", priority: "high" }
+  );
+  updateAppBadge();
   playTone(outcome === "miss" ? "miss" : "reveal");
   vibrate(outcome === "miss" ? 14 : [16, 35, 16, 35, 28]);
   showToast(`${loop.fragmentId} сохранён. Завтра рисунок продолжится.`);
@@ -1529,7 +2062,7 @@ function renderThresholdState() {
   $("#threshold-recovery").classList.add("hidden");
   $("#arrival-panel").classList.add("hidden");
   $("#threshold-complete").classList.add("hidden");
-  $("#open-map-link").classList.add("hidden");
+  $("#route-panel").classList.add("hidden");
   $("#arrive-threshold-button").classList.add("hidden");
   $("#manual-arrive-threshold-button").classList.add("hidden");
   $("#find-threshold-button").classList.toggle("hidden", threshold.status !== "sealed");
@@ -1557,9 +2090,16 @@ function renderThresholdState() {
       : `${categoryLabel(place.category)} · около ${place.distance} м по прямой · данные © OpenStreetMap · доступ и маршрут не проверены`;
 
     if (!place.home && Number.isFinite(place.latitude) && Number.isFinite(place.longitude)) {
-      const link = $("#open-map-link");
-      link.href = `https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=18/${place.latitude}/${place.longitude}`;
-      link.classList.remove("hidden");
+      const coordinates = `${place.latitude},${place.longitude}`;
+      const encodedCoordinates = encodeURIComponent(coordinates);
+      const encodedName = encodeURIComponent(place.name);
+      $("#apple-maps-link").href =
+        `https://maps.apple.com/?daddr=${encodedCoordinates}&dirflg=w&q=${encodedName}`;
+      $("#google-maps-link").href =
+        `https://www.google.com/maps/dir/?api=1&destination=${encodedCoordinates}&travelmode=walking`;
+      $("#open-map-link").href =
+        `https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=18/${place.latitude}/${place.longitude}`;
+      $("#route-panel").classList.remove("hidden");
     }
   }
 
@@ -1928,7 +2468,13 @@ async function revealThresholdPlace(place) {
     home: place.home === true
   };
   currentThreshold.status = place.home ? "arrived" : "revealed";
-  if (place.home) currentThreshold.arrivedAt = new Date().toISOString();
+  if (place.home) {
+    currentThreshold.arrivedAt = new Date().toISOString();
+    currentThreshold.reminderAt = null;
+  } else {
+    currentThreshold.reminderAt = Date.now() + 12 * 60 * 1000;
+    currentThreshold.reminderNotifiedAt = null;
+  }
   await persistActiveThreshold();
   renderThresholdState();
 
@@ -1952,6 +2498,18 @@ async function revealThresholdPlace(place) {
   else state.chronicle.unshift(entry);
   await saveState();
   renderChronicle();
+  emitRealitySignal(
+    place.home ? "arrived" : "thresholdReady",
+    {
+      place: currentThreshold.place.name,
+      distance: currentThreshold.place.distance
+    },
+    {
+      label: place.home ? "ДОМАШНИЙ ПОРОГ" : "ГОРОД ОТВЕТИЛ",
+      priority: "high"
+    }
+  );
+  armPendingNotifications();
   playTone("reveal");
   vibrate([22, 50, 22, 50, 35]);
   showToast(
@@ -2011,6 +2569,11 @@ async function confirmThresholdArrival({ manual = false } = {}) {
   currentThreshold.arrivedAt = new Date().toISOString();
   await persistActiveThreshold();
   renderThresholdState();
+  emitRealitySignal("arrived", {}, {
+    label: "ПРИБЫТИЕ ПРИНЯТО",
+    priority: "high"
+  });
+  updateAppBadge();
   playTone("arrival");
   showToast("Прибытие принято. Теперь реальность отвечает на запечатанные знаки.");
 }
@@ -2051,6 +2614,12 @@ async function completeThreshold() {
   await persistActiveThreshold();
   renderThresholdState();
   renderChronicle();
+  emitRealitySignal(
+    "completed",
+    { fragment: currentThreshold.fragmentId },
+    { label: "РЕАЛЬНОСТЬ ОТВЕТИЛА", priority: "high" }
+  );
+  updateAppBadge();
   playTone("fragment");
   vibrate([18, 35, 18, 35, 55]);
   showToast(`${currentThreshold.fragmentId} сохранён. Завтрашняя печать уже изменилась.`);
@@ -2076,7 +2645,7 @@ async function resetThreshold(options = {}) {
   $("#find-threshold-button").classList.remove("hidden");
   $("#find-threshold-button").disabled = false;
   $("#find-threshold-button span").textContent = "Раскрыть место рядом";
-  $("#open-map-link").classList.add("hidden");
+  $("#route-panel").classList.add("hidden");
   $("#arrive-threshold-button").classList.add("hidden");
   $("#manual-arrive-threshold-button").classList.add("hidden");
   $("#threshold-recovery").classList.add("hidden");
@@ -2138,10 +2707,15 @@ function init() {
   currentThreshold = state.activeThreshold
     ? structuredClone(state.activeThreshold)
     : createThresholdState();
+  const previousSeenAt = state.reality.lastSeenAt ? new Date(state.reality.lastSeenAt).getTime() : 0;
+  const returnGap = previousSeenAt ? Date.now() - previousSeenAt : 0;
+  state.reality.visits += 1;
+  state.reality.lastSeenAt = new Date().toISOString();
   $("#day-label").textContent = localDateLabel().toUpperCase();
   $("#day-phase").textContent = timePhase();
   updateProfileUI();
   updateSoundUI();
+  updateNotificationUI();
   renderExistingDaily();
   renderChronicle();
   renderThresholdState();
@@ -2159,6 +2733,16 @@ function init() {
   });
 
   $("#profile-button").addEventListener("click", () => openLayer("profile-sheet"));
+  $("#signal-toggle").addEventListener("click", () => {
+    updateNotificationUI();
+    openLayer("signals-sheet");
+  });
+  $("#reality-wire").addEventListener("click", () => {
+    updateNotificationUI();
+    openLayer("signals-sheet");
+  });
+  $("#enable-notifications-button").addEventListener("click", enableNotifications);
+  $("#test-notification-button").addEventListener("click", sendTestNotification);
   $("#profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const previousProfile = { ...state.profile };
@@ -2226,6 +2810,7 @@ function init() {
     await resetThreshold({ persist: false });
     updateProfileUI();
     updateSoundUI();
+    updateNotificationUI();
     updateReturnCue();
     renderChronicle();
     $("#forecast-section").classList.add("hidden");
@@ -2235,6 +2820,8 @@ function init() {
     $("#hero-copy").textContent =
       "Короткий личный ритуал создаст сегодняшний прогноз. Никакой магии — только психология внимания, символы и честная Хроника совпадений.";
     closeLayer($("#profile-sheet"));
+    emitRealitySignal("first", {}, { label: "НОВЫЙ КОНТУР", priority: "high" });
+    updateAppBadge();
     await startAmbientSound();
     showToast("Локальные данные удалены. Звук снова включён по умолчанию.");
   });
@@ -2296,6 +2883,9 @@ function init() {
   $("#expand-threshold-button").addEventListener("click", expandThresholdSearch);
   $("#home-threshold-button").addEventListener("click", revealHomeThreshold);
   $("#home-threshold-now-button").addEventListener("click", revealHomeThreshold);
+  $("#apple-maps-link").addEventListener("click", () => trackRouteOpen("apple"));
+  $("#google-maps-link").addEventListener("click", () => trackRouteOpen("google"));
+  $("#open-map-link").addEventListener("click", () => trackRouteOpen("osm"));
   $("#arrive-threshold-button").addEventListener("click", () => confirmThresholdArrival());
   $("#manual-arrive-threshold-button").addEventListener("click", () =>
     confirmThresholdArrival({ manual: true })
@@ -2333,10 +2923,40 @@ function init() {
     }
   });
 
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  }
+  getServiceWorkerRegistration().then(() => {
+    updateNotificationUI();
+    armPendingNotifications();
+  });
   window.setInterval(updateThresholdAvailability, 60000);
+  clearInterval(realityTimer);
+  realityTimer = window.setInterval(updateRealityFromCurrentState, 75000);
+  document.addEventListener("visibilitychange", handleVisibilityReturn);
+  window.addEventListener("focus", updateNotificationUI);
+  window.addEventListener("online", () => {
+    emitRealitySignal("online", {}, { label: "СВЯЗЬ ВЕРНУЛАСЬ", priority: "high" });
+  });
+  window.addEventListener("offline", () => {
+    emitRealitySignal("offline", {}, { label: "ГОРОДСКОЙ СЛОЙ МОЛЧИТ", priority: "high" });
+  });
+
+  const signalTarget = new URLSearchParams(window.location.search).get("signal");
+  if (signalTarget === "threshold") {
+    setView("threshold");
+  } else if (signalTarget === "echo") {
+    const record = forecastForReturn();
+    if (record) renderForecast(record.forecast);
+  }
+
+  if (returnGap >= 2 * 60 * 1000) {
+    emitRealitySignal(
+      "return",
+      { minutes: Math.max(2, Math.round(returnGap / 60000)) },
+      { label: "ВОЗВРАЩЕНИЕ", priority: "high" }
+    );
+  } else {
+    updateRealityFromCurrentState();
+  }
+  saveState();
 
   if (storageProtection.recovered) {
     window.setTimeout(() => {

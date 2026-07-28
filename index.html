@@ -50,11 +50,24 @@
             <span class="sound-glyph" aria-hidden="true">🔊</span>
             <span class="sound-label">ЗВУК</span>
           </button>
+          <button class="signal-toggle" id="signal-toggle" type="button" aria-label="Настроить уведомления">
+            <span class="signal-glyph" aria-hidden="true">🔔</span>
+            <span class="signal-status-dot" aria-hidden="true"></span>
+          </button>
           <button class="avatar-button" id="profile-button" type="button" aria-label="Профиль">
             <span id="avatar-letter">○</span>
           </button>
         </div>
       </header>
+
+      <button class="reality-wire" id="reality-wire" type="button" aria-label="Открыть канал сигналов">
+        <span class="reality-pulse" aria-hidden="true"></span>
+        <span class="reality-message">
+          <small id="reality-wire-meta">ЖИВОЙ СИГНАЛ · СЕЙЧАС</small>
+          <strong id="reality-wire-copy">Реальность ещё не выбрала первую фразу.</strong>
+        </span>
+        <span class="reality-arrow" aria-hidden="true">›</span>
+      </button>
 
       <main>
         <section class="view is-active" id="today-view" data-view="today" aria-labelledby="today-title">
@@ -339,13 +352,34 @@
               <ul class="sealed-signs" id="sealed-signs"></ul>
               <small id="omen-proof">Промах тоже считается: не подгоняй реальность под печать.</small>
             </div>
-            <a class="secondary-button hidden" id="open-map-link" href="#" target="_blank" rel="noopener">
-              <span>
-                <small>ОТКРЫТЬ В OPENSTREETMAP</small>
-                Проверить путь
-              </span>
-              <span aria-hidden="true">↗</span>
-            </a>
+            <section class="route-panel hidden" id="route-panel" aria-labelledby="route-panel-title">
+              <div class="route-heading">
+                <span class="route-orbit" aria-hidden="true">⌖</span>
+                <div>
+                  <span class="section-kicker">МАРШРУТ К ПОРОГУ</span>
+                  <h3 id="route-panel-title">Точка передана карте.</h3>
+                </div>
+              </div>
+              <a class="route-primary" id="apple-maps-link" href="#" target="_blank" rel="noopener">
+                <span class="route-provider-icon apple-provider" aria-hidden="true">⌁</span>
+                <span>
+                  <small>ПЕШИЙ МАРШРУТ</small>
+                  Идти через Apple Maps
+                </span>
+                <span aria-hidden="true">→</span>
+              </a>
+              <div class="route-alternatives">
+                <a id="google-maps-link" href="#" target="_blank" rel="noopener">
+                  <strong>Google Maps</strong>
+                  <small>построить маршрут</small>
+                </a>
+                <a id="open-map-link" href="#" target="_blank" rel="noopener">
+                  <strong>OpenStreetMap</strong>
+                  <small>посмотреть точку</small>
+                </a>
+              </div>
+              <p>Карта проверяет реальный проход. MOIRÉ знает координату, но не состояние дорожек, ворот и освещения.</p>
+            </section>
             <button class="secondary-button hidden" id="arrive-threshold-button" type="button">
               <span>
                 <small>ЭТАП 02 · ПРИБЫТИЕ</small>
@@ -550,6 +584,63 @@
         <button class="text-button danger-link" id="clear-data-button" type="button">
           Удалить все данные с устройства
         </button>
+      </div>
+    </section>
+
+    <section class="sheet hidden" id="signals-sheet" role="dialog" aria-modal="true" aria-labelledby="signals-title">
+      <button class="sheet-backdrop" type="button" data-close aria-label="Закрыть"></button>
+      <div class="sheet-panel signals-panel">
+        <div class="sheet-handle"></div>
+        <span class="section-kicker">КАНАЛ РЕАЛЬНОСТИ</span>
+        <h2 id="signals-title">Пусть она заговорит первой.</h2>
+        <p class="sheet-intro">
+          MOIRÉ подаст знак, когда созреет Эхо, изменится состояние Порога или незакрытая петля позовёт тебя обратно.
+        </p>
+
+        <section class="signal-permission-card" aria-live="polite">
+          <span class="permission-orbit" aria-hidden="true">
+            <span></span>
+          </span>
+          <div>
+            <small id="notification-status-kicker">ПРОВЕРЯЮ КАНАЛ</small>
+            <strong id="notification-status-title">Уведомления ещё не настроены</strong>
+            <p id="notification-status-copy">
+              На iPhone добавь MOIRÉ на экран «Домой», затем разреши уведомления одним касанием.
+            </p>
+          </div>
+        </section>
+
+        <button class="primary-button" id="enable-notifications-button" type="button">
+          <span>Разрешить сигналы</span>
+          <span class="button-glyph" aria-hidden="true">🔔</span>
+        </button>
+        <button class="secondary-button hidden" id="test-notification-button" type="button">
+          <span>
+            <small>ПРОВЕРКА КАНАЛА</small>
+            Получить пробный сигнал
+          </span>
+          <span aria-hidden="true">↯</span>
+        </button>
+
+        <div class="signal-rules">
+          <div>
+            <span aria-hidden="true">01</span>
+            <p><strong>Эхо созрело</strong><small>Второй сигнал больше не запечатан.</small></p>
+          </div>
+          <div>
+            <span aria-hidden="true">02</span>
+            <p><strong>Порог ждёт</strong><small>Место сохранено и не изменится после выхода.</small></p>
+          </div>
+          <div>
+            <span aria-hidden="true">03</span>
+            <p><strong>Реальность ответила</strong><small>Возвращение, время и твои действия меняют голос приложения.</small></p>
+          </div>
+        </div>
+
+        <p class="notification-footnote" id="notification-footnote">
+          Сигналы появляются только после твоего разрешения. Их можно отключить в настройках iPhone.
+        </p>
+        <button class="modal-close sheet-close" type="button" data-close aria-label="Закрыть">×</button>
       </div>
     </section>
 
