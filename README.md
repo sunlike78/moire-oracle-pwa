@@ -1,10 +1,20 @@
 # MOIRÉ
 
-MOIRÉ is an iPhone-first progressive web app prototype: a personal probability
-oracle with daily rituals, transparent `PATTERN / MYTH / CHANCE` labels, and a
-sealed nearby-place experiment powered by public OpenStreetMap points of interest.
+MOIRÉ is an iPhone-first observation game. It records choices and details before
+an event, gives the player a short mission or an optional nearby walking point,
+then saves an honest exact / near / miss result. Its fictional “weak interference
+instrument” lore adds atmosphere without replacing the clear rules. Transparent
+`PATTERN / MYTH / CHANCE` labels explain which effects come from psychology,
+symbolic mythology or sealed randomness.
 
 [Open the live app](https://sunlike78.github.io/moire-oracle-pwa/)
+
+Every new or pre-onboarding player first sees a four-part interactive prologue.
+It explains the purpose in plain language, records a trial sigil with the current
+time, demonstrates why the result cannot be retrofitted, offers a five-minute or
+walking first route, then defines Signal, Echo, Threshold and Fragment. Completing
+the prologue launches the selected real route immediately. It can be skipped and
+replayed later from the MOIRÉ logo.
 
 The daily experience includes a return loop: the user chooses a sigil, receives
 an attention mission, waits three minutes for a sealed Echo, records how it
