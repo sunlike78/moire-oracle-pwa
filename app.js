@@ -7,6 +7,7 @@ const BACKUP_FORMAT = "moire-oracle-backup";
 const BACKUP_VERSION = 1;
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const HOLD_DURATION = 1800;
+const THRESHOLD_VERSION = 2;
 const placeSearchCache = new Map();
 let lastNominatimRequestAt = 0;
 const OVERPASS_ENDPOINTS = [
@@ -21,7 +22,8 @@ const defaults = {
   soundPreferenceSet: false,
   installDismissed: false,
   daily: {},
-  chronicle: []
+  chronicle: [],
+  activeThreshold: null
 };
 
 const forecastBank = {
@@ -108,7 +110,7 @@ const forecastBank = {
   }
 };
 
-const ECHO_DELAY_MS = 18 * 60 * 1000;
+const ECHO_DELAY_MS = 3 * 60 * 1000;
 const sigilMeta = {
   circle: { symbol: "◯", label: "Круг" },
   rift: { symbol: "⌁", label: "Разлом" },
@@ -116,7 +118,7 @@ const sigilMeta = {
 };
 const missionBank = {
   circle: [
-    "В следующие 18 минут поймай одно повторение: слово, жест или форму. Не ищи специально — отметь первое.",
+    "В следующие 3 минуты поймай одно повторение: слово, жест или форму. Не ищи специально — отметь первое.",
     "Заметь предмет, который образует круг внутри другой формы. Не фотографируй: удержи его в памяти до Эха.",
     "Прислушайся к фразе, которая прозвучит дважды из разных источников. Первое повторение считается."
   ],
@@ -148,14 +150,41 @@ const fragmentCopyBank = [
   "Незакрытый контур стал частью личного рисунка.",
   "Ты вернулся к сигналу — именно это завершило цепь."
 ];
+const thresholdAntiSigns = [
+  "если место требует нарушить границу — это не твой Порог",
+  "если путь кажется небезопасным — остановись, и промах будет честным исходом",
+  "если знак приходится выдумывать — отметь «мимо» без объяснения",
+  "если вход закрыт — наблюдай с публичной стороны или выбери домашний контур",
+  "если тело говорит «нет» — это важнее любой печати"
+];
+const homeThresholdBank = {
+  quiet: [
+    "Останься там, где безопасно, и найди самую тихую границу света.",
+    "Выбери знакомый предмет и посмотри на него с уровня пола.",
+    "Открой окно или подойди к нему: отметь первый далёкий звук."
+  ],
+  strange: [
+    "Найди в комнате форму, похожую на карту места, которого нет.",
+    "Посмотри на отражение под непривычным углом и найди отсутствующую деталь.",
+    "Выбери третий предмет слева и придумай ему одно невозможное назначение."
+  ],
+  warm: [
+    "Найди след чьей-то заботы, который обычно остаётся незамеченным.",
+    "Выбери предмет, связанный с хорошим человеком, и вспомни одну точную деталь.",
+    "Сделай маленькое безопасное улучшение пространства и заметь, что изменилось."
+  ]
+};
 
 const initialLocalState = readLocalState();
 let state = initialLocalState.state;
 let currentRitual = { energy: "", card: null, holdMs: 0, seal: "", forecast: null };
-let currentThreshold = { radius: 1200, tone: "quiet", seal: "", omen: "", intention: "" };
+let currentThreshold = state.activeThreshold
+  ? structuredClone(state.activeThreshold)
+  : createThresholdState();
 let holdTimer = null;
 let holdStartedAt = 0;
 let holdFrame = null;
+let activeLoopKey = null;
 let toastTimer = null;
 let audioContext = null;
 let ambientNodes = [];
@@ -179,6 +208,77 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function createThresholdState() {
+  return {
+    version: THRESHOLD_VERSION,
+    id: "",
+    status: "draft",
+    radius: 1200,
+    tone: "quiet",
+    seal: "",
+    signs: [],
+    antiSign: "",
+    intention: "",
+    createdAt: null,
+    place: null,
+    arrivedAt: null,
+    completedAt: null,
+    outcome: null,
+    note: "",
+    fragmentId: ""
+  };
+}
+
+function normalizeThreshold(saved) {
+  if (!isPlainObject(saved) || typeof saved.seal !== "string" || !saved.seal) return null;
+  const base = createThresholdState();
+  const place = isPlainObject(saved.place)
+    ? {
+        id: typeof saved.place.id === "string" ? saved.place.id : "",
+        name: typeof saved.place.name === "string" ? saved.place.name.slice(0, 160) : "",
+        category: typeof saved.place.category === "string" ? saved.place.category : "place",
+        latitude:
+          saved.place.latitude !== null && Number.isFinite(Number(saved.place.latitude))
+            ? Number(saved.place.latitude)
+            : null,
+        longitude:
+          saved.place.longitude !== null && Number.isFinite(Number(saved.place.longitude))
+            ? Number(saved.place.longitude)
+            : null,
+        distance: Number.isFinite(Number(saved.place.distance)) ? Math.max(0, Number(saved.place.distance)) : 0,
+        home: saved.place.home === true
+      }
+    : null;
+
+  return {
+    ...base,
+    version: Number(saved.version) || THRESHOLD_VERSION,
+    id: typeof saved.id === "string" ? saved.id : `threshold-${saved.seal.slice(0, 12)}`,
+    status: ["sealed", "revealed", "arrived", "completed"].includes(saved.status)
+      ? saved.status
+      : place
+        ? "revealed"
+        : "sealed",
+    radius: [500, 1200, 2500].includes(Number(saved.radius)) ? Number(saved.radius) : 1200,
+    tone: ["quiet", "strange", "warm"].includes(saved.tone) ? saved.tone : "quiet",
+    seal: saved.seal,
+    signs: Array.isArray(saved.signs)
+      ? saved.signs.filter((item) => typeof item === "string").slice(0, 3)
+      : typeof saved.omen === "string"
+        ? [saved.omen]
+        : [],
+    antiSign: typeof saved.antiSign === "string" ? saved.antiSign : "",
+    intention: typeof saved.intention === "string" ? saved.intention.slice(0, 64) : "",
+    createdAt: typeof saved.createdAt === "string" ? saved.createdAt : null,
+    place,
+    arrivedAt: typeof saved.arrivedAt === "string" ? saved.arrivedAt : null,
+    completedAt: typeof saved.completedAt === "string" ? saved.completedAt : null,
+    outcome: ["exact", "near", "miss"].includes(saved.outcome) ? saved.outcome : null,
+    note: typeof saved.note === "string" ? saved.note.slice(0, 160) : "",
+    fragmentId: typeof saved.fragmentId === "string" ? saved.fragmentId : ""
+  };
+}
+
 function normalizeState(saved) {
   const source = isPlainObject(saved) ? saved : {};
   const sourceProfile = isPlainObject(source.profile) ? source.profile : {};
@@ -194,7 +294,8 @@ function normalizeState(saved) {
     soundPreferenceSet: hasSoundPreference,
     installDismissed: source.installDismissed === true,
     daily: isPlainObject(source.daily) ? source.daily : {},
-    chronicle: Array.isArray(source.chronicle) ? source.chronicle : []
+    chronicle: Array.isArray(source.chronicle) ? source.chronicle : [],
+    activeThreshold: normalizeThreshold(source.activeThreshold)
   };
 }
 
@@ -280,6 +381,14 @@ async function deleteVaultSnapshot() {
   }
 }
 
+async function deleteAppCaches() {
+  if (!("caches" in window)) return;
+  const keys = await caches.keys();
+  await Promise.all(
+    keys.filter((key) => key.startsWith("moire-oracle-")).map((key) => caches.delete(key))
+  );
+}
+
 function queueVaultSnapshot(snapshot = state) {
   const copy = normalizeState(structuredClone(snapshot));
   vaultWriteQueue = vaultWriteQueue
@@ -360,10 +469,14 @@ async function requestPersistentStorage() {
   return storageProtection.persisted;
 }
 
-function todayKey() {
+function localDayKey(date = new Date()) {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-  }).format(new Date());
+  }).format(date);
+}
+
+function todayKey() {
+  return localDayKey(new Date());
 }
 
 function localDateLabel() {
@@ -440,6 +553,8 @@ function playTone(kind = "tap") {
     select: [440, 0.14, "sine", 0.035],
     seal: [196, 0.65, "sine", 0.05],
     reveal: [261.63, 1.2, "sine", 0.065],
+    arrival: [392, 0.8, "sine", 0.055],
+    fragment: [523.25, 1.45, "sine", 0.075],
     miss: [146.83, 0.35, "triangle", 0.025]
   };
   const [frequency, duration, type, volume] = notes[kind] || notes.tap;
@@ -448,6 +563,8 @@ function playTone(kind = "tap") {
   oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, now);
   if (kind === "reveal") oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.5, now + duration);
+  if (kind === "arrival") oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.25, now + duration);
+  if (kind === "fragment") oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.5, now + duration);
   if (kind === "seal") oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.74, now + duration);
 
   gain.gain.setValueAtTime(0.0001, now);
@@ -532,7 +649,7 @@ async function startAmbientSound() {
     return;
   }
   ambientStarting = true;
-  ambient.volume = 0.34;
+  ambient.volume = 0.5;
   try {
     await ambient.play();
     ambientStarted = true;
@@ -739,6 +856,9 @@ function showRitualStep(step) {
 }
 
 function resetRitual() {
+  clearTimeout(holdTimer);
+  cancelAnimationFrame(holdFrame);
+  holdStartedAt = 0;
   currentRitual = { energy: "", card: null, holdMs: 0, seal: "", forecast: null };
   $("#hold-button").className = "hold-button";
   $("#hold-button").style.removeProperty("--hold-progress");
@@ -749,6 +869,10 @@ function resetRitual() {
 function startHold(event) {
   event.preventDefault();
   const button = $("#hold-button");
+  if (holdStartedAt || button.classList.contains("is-complete")) return;
+  clearTimeout(holdTimer);
+  cancelAnimationFrame(holdFrame);
+  currentRitual.holdMs = 0;
   holdStartedAt = performance.now();
   button.classList.add("is-holding");
   vibrate(8);
@@ -764,7 +888,10 @@ function startHold(event) {
   holdFrame = requestAnimationFrame(animate);
 
   holdTimer = setTimeout(() => {
+    if (!holdStartedAt) return;
     currentRitual.holdMs = Math.round(performance.now() - holdStartedAt);
+    holdStartedAt = 0;
+    cancelAnimationFrame(holdFrame);
     button.classList.remove("is-holding");
     button.classList.add("is-complete");
     $("#hold-hint").textContent = "печать замкнулась";
@@ -778,8 +905,7 @@ function cancelHold() {
   if (!holdStartedAt || currentRitual.holdMs) return;
   clearTimeout(holdTimer);
   cancelAnimationFrame(holdFrame);
-  const elapsed = Math.max(1, performance.now() - holdStartedAt);
-  currentRitual.holdMs = Math.round(elapsed);
+  currentRitual.holdMs = 0;
   const button = $("#hold-button");
   button.classList.remove("is-holding");
   button.style.removeProperty("--hold-progress");
@@ -788,16 +914,51 @@ function cancelHold() {
   playTone("miss");
 }
 
+function completeHoldAccessibly() {
+  const button = $("#hold-button");
+  if (button.classList.contains("is-complete")) return;
+  clearTimeout(holdTimer);
+  cancelAnimationFrame(holdFrame);
+  holdStartedAt = 0;
+  currentRitual.holdMs = HOLD_DURATION;
+  button.classList.remove("is-holding");
+  button.classList.add("is-complete");
+  button.style.setProperty("--hold-progress", "360deg");
+  $("#hold-hint").textContent = "печать замкнулась";
+  playTone("select");
+  setTimeout(() => showRitualStep(3), 300);
+}
+
 function personalKeyMaterial(profile = state.profile) {
   return [
     profile.name.trim().toLocaleLowerCase("ru-RU") || "anonymous",
     profile.birthDate || "no-birth-date",
-    profile.birthTime || timePhase()
+    profile.birthTime || "no-birth-time",
+    timePhase()
   ].join("|");
 }
 
+function latestCompletedThreshold() {
+  return state.chronicle.find(
+    (entry) =>
+      entry.type === "threshold" &&
+      ["exact", "near", "miss"].includes(entry.outcome) &&
+      entry.expedition?.fragmentId
+  ) || null;
+}
+
 function ritualSealMaterial({ energy, holdMs, card }, profile = state.profile) {
-  return [todayKey(), personalKeyMaterial(profile), energy, holdMs, card].join("|");
+  const trace = latestCompletedThreshold();
+  return [
+    todayKey(),
+    personalKeyMaterial(profile),
+    energy,
+    holdMs,
+    card,
+    trace?.expedition?.fragmentId || "no-threshold-fragment",
+    trace?.outcome || "no-threshold-outcome",
+    trace?.copy || "no-threshold-note"
+  ].join("|");
 }
 
 async function chooseCard(cardIndex) {
@@ -824,10 +985,21 @@ async function chooseCard(cardIndex) {
 
 function buildForecast(seal) {
   const random = mulberry32(stringHash(seal));
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  let startMinutes = nowMinutes + 35 + Math.floor(random() * 85);
+  let dayPrefix = "";
+  if (startMinutes > 21 * 60 + 30) {
+    startMinutes = 8 * 60 + Math.floor(random() * 95);
+    dayPrefix = "ЗАВТРА · ";
+  }
+  const endMinutes = startMinutes + 55 + Math.floor(random() * 36);
+  const formatMinutes = (value) =>
+    `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
   return {
     title: pick(forecastBank.titles, random),
     gravity: pick(forecastBank.gravity, random),
-    gravityWindow: pick(forecastBank.gravityWindows, random),
+    gravityWindow: `СИЛЬНОЕ ОКНО · ${dayPrefix}${formatMinutes(startMinutes)}—${formatMinutes(endMinutes)}`,
     orbit: pick(forecastBank.orbit, random),
     comet: pick(forecastBank.comet, random),
     eclipseTitle: pick(forecastBank.eclipseTitles, random),
@@ -913,6 +1085,14 @@ function renderForecast(forecast) {
   $("#forecast-seal-short").textContent = forecast.seal.slice(0, 8).toUpperCase();
   $("#full-forecast-seal").textContent = forecast.seal.toUpperCase();
   $("#outcome-question").textContent = forecast.eclipse;
+  const memory = latestCompletedThreshold();
+  $("#memory-card").classList.toggle("hidden", !memory);
+  if (memory) {
+    $("#memory-fragment").textContent = memory.expedition.fragmentId;
+    $("#memory-copy").textContent = memory.copy
+      ? `Твоя деталь «${memory.copy}» стала частью этой печати.`
+      : "Исход прошлой экспедиции стал частью этой печати.";
+  }
   $("#forecast-section").classList.remove("hidden");
   $(".oracle-hero").classList.add("hidden");
   renderDailyLoop(forecast);
@@ -926,28 +1106,61 @@ function revealForecast() {
   setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 30);
 }
 
-function updateReturnCue(forecast = state.daily[todayKey()]) {
-  const loop = forecast?.loop;
+function pendingEchoRecord() {
+  return Object.entries(state.daily)
+    .filter(([, forecast]) => forecast?.loop && !forecast.loop.closedAt)
+    .sort((a, b) => String(a[1].loop.startedAt).localeCompare(String(b[1].loop.startedAt)))[0] || null;
+}
+
+function forecastForReturn() {
+  const pending = pendingEchoRecord();
+  if (pending && (pending[0] !== todayKey() || !state.daily[todayKey()])) {
+    return { key: pending[0], forecast: pending[1] };
+  }
+  const today = state.daily[todayKey()];
+  return today ? { key: todayKey(), forecast: today } : pending ? { key: pending[0], forecast: pending[1] } : null;
+}
+
+function updateReturnCue() {
+  const record = pendingEchoRecord();
+  const loop = record?.[1]?.loop;
   const needsReturn = Boolean(loop && !loop.closedAt && (loop.revealedAt || Date.now() >= loop.unlockAt));
   $("#echo-nav-alert").classList.toggle("hidden", !needsReturn);
   $("#today-nav-label").textContent = needsReturn ? "Эхо" : "Сегодня";
 }
 
 function renderExistingDaily() {
-  const forecast = state.daily[todayKey()];
-  updateReturnCue(forecast);
-  if (!forecast) return;
+  const todayForecast = state.daily[todayKey()];
+  const returnRecord = forecastForReturn();
+  const forecast = returnRecord?.forecast || todayForecast;
+  updateReturnCue();
+  if (!forecast) {
+    $("#open-day-button").classList.remove("hidden");
+    $("#show-forecast-button").classList.add("hidden");
+    $("#personal-greeting").textContent = state.profile.name
+      ? `${state.profile.name.toUpperCase()}, НОВЫЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ`
+      : "ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ";
+    $("#hero-copy").textContent =
+      "Дай системе три сигнала. Новый прогноз свяжется с сохранёнными фрагментами.";
+    return;
+  }
   $("#open-day-button").classList.add("hidden");
   $("#show-forecast-button").classList.remove("hidden");
   $("#personal-greeting").textContent = state.profile.name
     ? `${state.profile.name.toUpperCase()}, ДЕНЬ УЖЕ ЗАПЕЧАТАН`
     : "ДЕНЬ УЖЕ ЗАПЕЧАТАН";
   const loop = forecast.loop;
+  const isOlderLoop = Boolean(returnRecord && returnRecord.key !== todayKey());
+  if (isOlderLoop) {
+    $("#personal-greeting").textContent = "НЕЗАКРЫТОЕ ЭХО ВЕРНУЛОСЬ";
+  }
   if (loop?.closedAt) {
     $("#hero-copy").textContent = `Петля замкнута. Фрагмент ${loop.fragmentId} уже лежит в Хронике.`;
     $("#show-forecast-button").textContent = "Вернуться к печати";
   } else if (loop && Date.now() >= loop.unlockAt) {
-    $("#hero-copy").textContent = "Запечатанное Эхо созрело. Оно не откроется без твоего возвращения.";
+    $("#hero-copy").textContent = isOlderLoop
+      ? "Эхо пережило полночь и ждёт честного исхода. Закрой его — затем открой новый день."
+      : "Запечатанное Эхо созрело. Оно не откроется без твоего возвращения.";
     $("#show-forecast-button").textContent = "Открыть созревшее Эхо";
   } else if (loop) {
     $("#hero-copy").textContent = "Контракт внимания действует. Эхо откроется после короткой паузы.";
@@ -970,7 +1183,9 @@ function previousEchoEntry() {
 
 function renderDailyLoop(forecast = state.daily[todayKey()]) {
   if (!forecast) return;
-  updateReturnCue(forecast);
+  activeLoopKey =
+    Object.entries(state.daily).find(([, candidate]) => candidate === forecast)?.[0] || todayKey();
+  updateReturnCue();
   clearInterval(echoTimer);
   echoTimer = null;
 
@@ -983,7 +1198,7 @@ function renderDailyLoop(forecast = state.daily[todayKey()]) {
 
   if (!loop) {
     const previous = previousEchoEntry();
-    const previousId = previous?.title.match(/Φ-\d{3}/u)?.[0];
+    const previousId = previous?.title.match(/Φ-[A-Z0-9]{3,8}/u)?.[0];
     symbolStage.classList.remove("hidden");
     $("#loop-progress").textContent = "0/3";
     $("#daily-loop-title").textContent = previous ? "Вчерашний фрагмент снова на линии." : "Оставь дню незакрытый вопрос.";
@@ -1043,14 +1258,18 @@ function selectDailySigil(sigil) {
   const rarityRoll = random();
   const rarityLabel =
     rarityRoll < 0.08 ? "АНОМАЛЬНЫЙ ФРАГМЕНТ" : rarityRoll < 0.34 ? "РЕДКИЙ ФРАГМЕНТ" : "ФРАГМЕНТ";
-  const fragmentId = `Φ-${String(Math.floor(random() * 1000)).padStart(3, "0")}`;
+  const fragmentId = `Φ-${stringHash(`${forecast.seal}|${sigil}|fragment-v2`)
+    .toString(16)
+    .padStart(8, "0")
+    .slice(0, 6)
+    .toUpperCase()}`;
   const previous = previousEchoEntry();
   const baseFragmentCopy = pick(fragmentCopyBank, random);
   forecast.loop = {
     sigil,
     mission: pick(missionBank[sigil], random),
     echo: pick(echoBank, random),
-    parentFragmentId: previous?.title.match(/Φ-\d{3}/u)?.[0] || null,
+    parentFragmentId: previous?.title.match(/Φ-[A-Z0-9]{3,8}/u)?.[0] || null,
     startedAt: new Date().toISOString(),
     unlockAt: Date.now() + ECHO_DELAY_MS,
     revealedAt: null,
@@ -1059,7 +1278,7 @@ function selectDailySigil(sigil) {
     fragmentId,
     rarityLabel,
     fragmentCopy: previous
-      ? `${baseFragmentCopy} Связь с ${previous.title.match(/Φ-\d{3}/u)?.[0] || "прошлым фрагментом"} сохранена.`
+      ? `${baseFragmentCopy} Связь с ${previous.title.match(/Φ-[A-Z0-9]{3,8}/u)?.[0] || "прошлым фрагментом"} сохранена.`
       : baseFragmentCopy
   };
   saveState();
@@ -1067,11 +1286,14 @@ function selectDailySigil(sigil) {
   renderExistingDaily();
   playTone("seal");
   vibrate([15, 35, 18]);
-  showToast("Контракт принят. Эхо созреет через 18 минут — возвращение завершит цепь.");
+  showToast("Контракт принят. Первое Эхо созреет через 3 минуты — возвращение завершит цепь.");
 }
 
 function revealDailyEcho() {
-  const forecast = state.daily[todayKey()];
+  const record = activeLoopKey && state.daily[activeLoopKey]
+    ? { key: activeLoopKey, forecast: state.daily[activeLoopKey] }
+    : forecastForReturn();
+  const forecast = record?.forecast;
   const loop = forecast?.loop;
   if (!loop || loop.revealedAt) return;
   if (Date.now() < loop.unlockAt) {
@@ -1087,7 +1309,8 @@ function revealDailyEcho() {
 }
 
 function closeDailyLoop(outcome) {
-  const key = todayKey();
+  const key = activeLoopKey && state.daily[activeLoopKey] ? activeLoopKey : forecastForReturn()?.key;
+  if (!key) return;
   const forecast = state.daily[key];
   const loop = forecast?.loop;
   if (!loop || !loop.revealedAt || loop.closedAt) return;
@@ -1153,13 +1376,29 @@ function renderChronicle() {
   $("#stat-observed").textContent = entries.length;
   $("#stat-exact").textContent = entries.filter((entry) => entry.outcome === "exact").length;
   $("#stat-streak").textContent = calculateStreak(entries);
+  const thresholdCount = completedThresholdCount();
+  const constellationPosition = thresholdCount % 7 || (thresholdCount ? 7 : 0);
+  $("#chronicle-constellation-count").textContent = `${constellationPosition}/7`;
+  const nodes = $("#constellation-nodes");
+  nodes.innerHTML = "";
+  for (let index = 0; index < 7; index += 1) {
+    const node = document.createElement("span");
+    node.classList.toggle("is-lit", index < constellationPosition);
+    nodes.append(node);
+  }
+  $("#constellation-copy").textContent =
+    thresholdCount === 0
+      ? "Первый завершённый Порог зажжёт точку."
+      : constellationPosition === 7
+        ? "Созвездие замкнуто. Следующий Порог начнёт новую фигуру."
+        : `Ещё ${7 - constellationPosition} до завершения этой фигуры.`;
   const list = $("#chronicle-list");
   list.innerHTML = "";
 
   const outcomeLabels = { exact: "ТОЧНО", near: "ПОЧТИ", miss: "НЕТ", open: "ОТКРЫТО" };
   const typeLabels = { threshold: "Порог", echo: "Эхо", daily: "Затмение" };
   const typeSymbols = { threshold: "⌖", echo: "∴", daily: "✦" };
-  entries.slice(0, 24).forEach((entry) => {
+  entries.slice(0, 100).forEach((entry) => {
     const article = document.createElement("article");
     article.className = "chronicle-item";
     const symbol = typeSymbols[entry.type] || "✦";
@@ -1176,13 +1415,26 @@ function renderChronicle() {
 }
 
 function calculateStreak(entries) {
-  const days = [...new Set(entries.map((entry) => entry.createdAt.slice(0, 10)))].sort().reverse();
+  const days = [
+    ...new Set(
+      entries
+        .map((entry) => {
+          const date = new Date(entry.createdAt);
+          return Number.isNaN(date.getTime()) ? null : localDayKey(date);
+        })
+        .filter(Boolean)
+    )
+  ].sort().reverse();
   if (!days.length) return 0;
+  const dayOrdinal = (key) => {
+    const [year, month, day] = key.split("-").map(Number);
+    return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+  };
+  const latestGap = dayOrdinal(todayKey()) - dayOrdinal(days[0]);
+  if (latestGap > 1) return 0;
   let streak = 1;
   for (let index = 1; index < days.length; index += 1) {
-    const previous = new Date(`${days[index - 1]}T12:00:00`);
-    const current = new Date(`${days[index]}T12:00:00`);
-    if ((previous - current) / 86400000 === 1) streak += 1;
+    if (dayOrdinal(days[index - 1]) - dayOrdinal(days[index]) === 1) streak += 1;
     else break;
   }
   return streak;
@@ -1205,34 +1457,167 @@ function selectChip(groupId, button) {
   playTone("tap");
 }
 
+function pickUnique(list, random, count) {
+  const pool = [...list];
+  const picked = [];
+  while (pool.length && picked.length < count) {
+    picked.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+  }
+  return picked;
+}
+
+function persistActiveThreshold() {
+  state.activeThreshold = currentThreshold.seal
+    ? normalizeThreshold(structuredClone(currentThreshold))
+    : null;
+  return saveState();
+}
+
+function renderThresholdSigns() {
+  const signs = currentThreshold.signs || [];
+  $("#omen-copy").textContent = signs[0] || "—";
+  const list = $("#sealed-signs");
+  list.innerHTML = "";
+  signs.slice(1).forEach((sign, index) => {
+    const item = document.createElement("li");
+    const number = document.createElement("span");
+    const copy = document.createElement("strong");
+    number.textContent = `0${index + 2}`;
+    copy.textContent = sign;
+    item.append(number, copy);
+    list.append(item);
+  });
+  $("#omen-proof").textContent = currentThreshold.antiSign
+    ? `АНТИЗНАК: ${currentThreshold.antiSign}`
+    : "Промах тоже считается: не подгоняй реальность под печать.";
+}
+
+function setFragmentVisual(seal) {
+  const seed = stringHash(seal || "fragment");
+  const fragment = $("#threshold-fragment");
+  fragment.style.setProperty("--x", `${24 + (seed % 53)}%`);
+  fragment.style.setProperty("--y", `${22 + ((seed >>> 4) % 57)}%`);
+  fragment.style.setProperty("--turn", `${seed % 360}deg`);
+  fragment.style.setProperty("--fragment-rotation", `${17 + (seed % 71)}deg`);
+  fragment.style.setProperty(
+    "--fragment-radius",
+    `${34 + (seed % 28)}% ${40 + ((seed >>> 3) % 25)}% ${37 + ((seed >>> 7) % 30)}% ${42 + ((seed >>> 11) % 25)}%`
+  );
+}
+
+function completedThresholdCount() {
+  return state.chronicle.filter(
+    (entry) => entry.type === "threshold" && ["exact", "near", "miss"].includes(entry.outcome)
+  ).length;
+}
+
+function renderThresholdState() {
+  const threshold = currentThreshold;
+  const hasSeal = Boolean(threshold.seal);
+  $$("#radius-choices .choice-chip").forEach((chip) =>
+    chip.classList.toggle("is-selected", Number(chip.dataset.value) === threshold.radius)
+  );
+  $$("#tone-choices .choice-chip").forEach((chip) =>
+    chip.classList.toggle("is-selected", chip.dataset.value === threshold.tone)
+  );
+  $("#threshold-form").classList.toggle("hidden", hasSeal);
+  $("#threshold-result").classList.toggle("hidden", !hasSeal);
+  if (!hasSeal) return;
+
+  $("#intention-seal").textContent = threshold.seal.slice(0, 16).toUpperCase();
+  renderThresholdSigns();
+  $("#threshold-recovery").classList.add("hidden");
+  $("#arrival-panel").classList.add("hidden");
+  $("#threshold-complete").classList.add("hidden");
+  $("#open-map-link").classList.add("hidden");
+  $("#arrive-threshold-button").classList.add("hidden");
+  $("#manual-arrive-threshold-button").classList.add("hidden");
+  $("#find-threshold-button").classList.toggle("hidden", threshold.status !== "sealed");
+  $("#home-threshold-now-button").classList.toggle("hidden", threshold.status !== "sealed");
+  $("#map-oracle").classList.remove("is-searching", "has-point");
+
+  if (threshold.status === "sealed") {
+    $("#threshold-status").textContent = "ПЕЧАТЬ ГОТОВА · МЕСТО ЕЩЁ НЕ ВЫБРАНО";
+    $("#place-name").textContent = "Раскрой место или выбери домашний контур";
+    $("#place-meta").textContent =
+      "Поиск отправит приблизительную область публичным сервисам OpenStreetMap. Выбранная точка сохранится локально для продолжения.";
+    updateThresholdAvailability();
+    return;
+  }
+
+  const place = threshold.place;
+  if (place) {
+    $("#map-oracle").classList.add("has-point");
+    $("#threshold-status").textContent = place.home
+      ? "ДОМАШНИЙ ПОРОГ РАСКРЫТ"
+      : "МЕСТО ЗАПЕЧАТАНО · ПРОВЕРЬ МАРШРУТ";
+    $("#place-name").textContent = place.name;
+    $("#place-meta").textContent = place.home
+      ? "Без геопозиции и внешних запросов · останься там, где безопасно"
+      : `${categoryLabel(place.category)} · около ${place.distance} м по прямой · данные © OpenStreetMap · доступ и маршрут не проверены`;
+
+    if (!place.home && Number.isFinite(place.latitude) && Number.isFinite(place.longitude)) {
+      const link = $("#open-map-link");
+      link.href = `https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=18/${place.latitude}/${place.longitude}`;
+      link.classList.remove("hidden");
+    }
+  }
+
+  if (threshold.status === "revealed") {
+    $("#arrive-threshold-button").classList.remove("hidden");
+  } else if (threshold.status === "arrived") {
+    $("#arrival-panel").classList.remove("hidden");
+    $("#threshold-note").value = threshold.note || "";
+    $("#threshold-note-count").textContent = `${(threshold.note || "").length}/120`;
+    $$(".threshold-outcomes button").forEach((button) =>
+      button.classList.toggle("is-selected", button.dataset.thresholdOutcome === threshold.outcome)
+    );
+    $("#complete-threshold-button").disabled = !threshold.outcome;
+  } else if (threshold.status === "completed") {
+    $("#threshold-complete").classList.remove("hidden");
+    setFragmentVisual(threshold.seal);
+    $("#threshold-fragment-title").textContent = `${threshold.fragmentId} сохранён.`;
+    $("#threshold-fragment-copy").textContent = threshold.note
+      ? `«${threshold.note}» Завтра эта деталь войдёт в новую печать.`
+      : "Завтра исход этой экспедиции войдёт в новую печать.";
+    const count = completedThresholdCount();
+    $("#constellation-progress").textContent = `${((Math.max(1, count) - 1) % 7) + 1}/7`;
+  }
+}
+
 async function sealIntention(event) {
   event.preventDefault();
   const intention = $("#intention-input").value.trim();
   if (!intention) return;
   if (!$("#safety-confirm").checked) {
-    showToast("Сначала подтверди правила безопасного Порога.");
+    showToast("Сначала подтверди правила осторожности.");
     return;
   }
 
+  const sealedAt = new Date().toISOString();
   const material = [
     todayKey(),
-    state.profile.birthDate || "unkeyed",
+    personalKeyMaterial(state.profile),
+    timePhase(),
     intention.toLocaleLowerCase("ru-RU"),
     currentThreshold.radius,
-    currentThreshold.tone
+    currentThreshold.tone,
+    sealedAt,
+    "threshold-v2"
   ].join("|");
   currentThreshold.intention = intention;
   currentThreshold.seal = await sha256(material);
+  currentThreshold.id = `threshold-${currentThreshold.seal.slice(0, 12)}`;
+  currentThreshold.status = "sealed";
+  currentThreshold.createdAt = sealedAt;
   const random = mulberry32(stringHash(currentThreshold.seal));
-  currentThreshold.omen = pick(forecastBank.omens[currentThreshold.tone], random);
-
-  $("#intention-seal").textContent = currentThreshold.seal.slice(0, 16).toUpperCase();
-  $("#omen-copy").textContent = currentThreshold.omen;
-  $("#threshold-form").classList.add("hidden");
-  $("#threshold-result").classList.remove("hidden");
-  updateThresholdAvailability();
+  currentThreshold.signs = pickUnique(forecastBank.omens[currentThreshold.tone], random, 3);
+  currentThreshold.antiSign = pick(thresholdAntiSigns, random);
+  await persistActiveThreshold();
+  renderThresholdState();
   playTone("seal");
   vibrate([18, 40, 18]);
+  showToast("Печать сохранена. Перезагрузка больше не разорвёт экспедицию.");
 }
 
 function getPosition() {
@@ -1243,7 +1628,7 @@ function getPosition() {
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: false,
-      timeout: 12000,
+      timeout: 4000,
       maximumAge: 300000
     });
   });
@@ -1262,12 +1647,17 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 
 function overpassQuery(latitude, longitude, radius) {
   return `
-    [out:json][timeout:8];
+    [out:json][timeout:5];
     (
       nwr(around:${radius},${latitude},${longitude})["name"]["tourism"="artwork"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["tourism"="viewpoint"];
       nwr(around:${radius},${latitude},${longitude})["name"]["leisure"="park"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["historic"="memorial"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["historic"="monument"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["amenity"="library"];
+      nwr(around:${radius},${latitude},${longitude})["name"]["amenity"="community_centre"];
     );
-    out center tags 50;
+    out center tags 80;
   `.trim();
 }
 
@@ -1290,7 +1680,7 @@ function extractPlaces(elements, origin, radius) {
         return null;
       }
       const distance = Math.round(haversineMeters(origin.latitude, origin.longitude, latitude, longitude));
-      if (distance < 100 || distance > radius * 1.12) return null;
+      if (distance > radius * 1.12) return null;
       return {
         id: `${element.type}-${element.id}`,
         name: tags.name,
@@ -1338,7 +1728,7 @@ function extractNominatimPlaces(results, origin, radius) {
         return null;
       }
       const distance = Math.round(haversineMeters(origin.latitude, origin.longitude, latitude, longitude));
-      if (distance < 100 || distance > radius * 1.12) return null;
+      if (distance > radius * 1.12) return null;
       return {
         id: `${result.osm_type || "place"}-${result.osm_id || result.place_id}`,
         name: result.name,
@@ -1388,65 +1778,54 @@ async function searchNominatim(origin, radius, query = "[park]") {
       cache: "no-store",
       headers: { Accept: "application/json" }
     },
-    8000
+    3500
   );
   return extractNominatimPlaces(Array.isArray(data) ? data : [], origin, radius);
 }
 
 async function searchOverpass(origin, radius) {
-  let lastError = null;
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      const data = await fetchJsonWithTimeout(
-        endpoint,
-        {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-          },
-          body: new URLSearchParams({ data: overpassQuery(origin.latitude, origin.longitude, radius) })
-        },
-        6500
-      );
-      return extractPlaces(data.elements || [], origin, radius);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("place-service-unavailable");
+  const endpointIndex = stringHash(
+    `${origin.latitude.toFixed(3)}|${origin.longitude.toFixed(3)}|${radius}`
+  ) % OVERPASS_ENDPOINTS.length;
+  const data = await fetchJsonWithTimeout(
+    OVERPASS_ENDPOINTS[endpointIndex],
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+      },
+      body: new URLSearchParams({ data: overpassQuery(origin.latitude, origin.longitude, radius) })
+    },
+    3500
+  );
+  return extractPlaces(data.elements || [], origin, radius);
 }
 
 async function searchPublicPlaces(origin, radius) {
   const cacheKey = `${origin.latitude.toFixed(4)}:${origin.longitude.toFixed(4)}:${radius}`;
   if (placeSearchCache.has(cacheKey)) return placeSearchCache.get(cacheKey);
 
-  let nominatimAnswered = false;
-  for (const query of ["[park]", "[monument]", "[artwork]"]) {
-    try {
-      const places = await searchNominatim(origin, radius, query);
-      nominatimAnswered = true;
-      if (places.length) {
-        placeSearchCache.set(cacheKey, places);
-        return places;
-      }
-    } catch {
-      break;
-    }
+  const queryOrder = ["[park]", "[monument]", "[artwork]"];
+  const query = queryOrder[stringHash(currentThreshold.seal) % queryOrder.length];
+  const results = await Promise.allSettled([
+    searchNominatim(origin, radius, query),
+    searchOverpass(origin, radius)
+  ]);
+  const places = results
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value);
+  const unique = [...new Map(places.map((place) => [place.id, place])).values()].sort((a, b) =>
+    a.id.localeCompare(b.id)
+  );
+  if (unique.length) placeSearchCache.set(cacheKey, unique);
+  if (!unique.length && results.every((result) => result.status === "rejected")) {
+    throw new Error("place-service-timeout");
   }
-
-  $("#threshold-status").textContent = "ПРОБУЮ РЕЗЕРВНЫЙ КАРТОГРАФИЧЕСКИЙ УЗЕЛ";
-  try {
-    const places = await searchOverpass(origin, radius);
-    if (places.length) placeSearchCache.set(cacheKey, places);
-    return places;
-  } catch (error) {
-    if (nominatimAnswered) return [];
-    throw error;
-  }
+  return unique;
 }
 
-function thresholdIsOpen(date = new Date()) {
+function thresholdIsDaylight(date = new Date()) {
   const hour = date.getHours();
   return hour >= 7 && hour < 21;
 }
@@ -1455,34 +1834,27 @@ function updateThresholdAvailability() {
   const button = $("#find-threshold-button");
   const notice = $("#threshold-availability");
   if (!button || !notice) return;
-  const open = thresholdIsOpen();
-  notice.classList.toggle("hidden", open);
-  notice.textContent = open
+  const daylight = thresholdIsDaylight();
+  notice.classList.toggle("hidden", daylight);
+  notice.textContent = daylight
     ? ""
-    : "Городской слой отдыхает с 21:00 до 07:00. Печать сохранена: утром достаточно вернуться и нажать кнопку.";
+    : "НОЧНОЙ КОНТУР: место можно запечатать сейчас, но открывай маршрут и выходи только после 07:00. Или выбери «Порог здесь».";
 
   if (!$("#threshold-result").classList.contains("hidden") && !button.classList.contains("hidden")) {
-    if (!open) {
-      button.disabled = true;
-      button.querySelector("span").textContent = "Порог откроется в 07:00";
-    } else if (!$("#map-oracle").classList.contains("is-searching")) {
+    if (!$("#map-oracle").classList.contains("is-searching")) {
       button.disabled = false;
-      if (button.querySelector("span").textContent === "Порог откроется в 07:00") {
-        button.querySelector("span").textContent = "Найти безопасный Порог";
-      }
+      button.querySelector("span").textContent = daylight
+        ? "Раскрыть место рядом"
+        : "Запечатать место до утра";
     }
   }
 }
 
 async function findThreshold() {
-  if (!thresholdIsOpen()) {
-    updateThresholdAvailability();
-    showToast("Городской Порог открывается только с 07:00 до 21:00. Ночью выбирай домашний ритуал.");
-    return;
-  }
-
   const button = $("#find-threshold-button");
   const map = $("#map-oracle");
+  const searchSeal = currentThreshold.seal;
+  $("#threshold-recovery").classList.add("hidden");
   button.disabled = true;
   button.querySelector("span").textContent = "Слушаю город…";
   map.classList.add("is-searching");
@@ -1496,24 +1868,35 @@ async function findThreshold() {
       longitude: position.coords.longitude
     };
     const places = await searchPublicPlaces(origin, currentThreshold.radius);
+    if (!searchSeal || currentThreshold.seal !== searchSeal) return;
     if (!places.length) throw new Error("no-public-places");
 
     const choiceSeed = stringHash(`${currentThreshold.seal}|${places.map((place) => place.id).join(",")}`);
     const place = places[choiceSeed % places.length];
-    revealThresholdPlace(place);
+    await revealThresholdPlace(place);
   } catch (error) {
+    if (!searchSeal || currentThreshold.seal !== searchSeal) return;
     map.classList.remove("is-searching");
     button.disabled = false;
     button.querySelector("span").textContent = "Попробовать ещё раз";
     $("#threshold-status").textContent = "ТОЧКА НЕ РАСКРЫЛАСЬ";
+    $("#threshold-recovery").classList.remove("hidden");
     if (error?.code === 1) {
-      showToast("Без доступа к геопозиции MOIRÉ не может выбрать публичное место рядом.");
+      $("#threshold-recovery-copy").textContent =
+        "Геопозиция недоступна. Печать сохранена: разреши доступ позже или пройди домашний контур сейчас.";
+      showToast("Печать не потеряна. Доступен домашний Порог без геопозиции.");
     } else if (error?.message === "no-public-places") {
-      showToast("В этом радиусе не нашлось подходящих публичных мест. Выбери больший радиус.");
+      $("#threshold-recovery-copy").textContent =
+        "В этом радиусе нет подходящего ответа. Расширь поиск или преврати место, где ты уже находишься, в Порог.";
+      showToast("Место не найдено, но экспедиция продолжается.");
     } else if (error?.message === "place-service-timeout") {
-      showToast("Картографические узлы не ответили вовремя. Интернет есть, но слой перегружен — попробуй ещё раз.");
+      $("#threshold-recovery-copy").textContent =
+        "Картографические узлы не ответили вовремя. Не жди: расширь поиск позже или продолжи здесь.";
+      showToast("Карта молчит; печать и быстрый fallback уже готовы.");
     } else {
-      showToast("Городской слой сейчас молчит. Проверь интернет и попробуй снова.");
+      $("#threshold-recovery-copy").textContent =
+        "Сеть сейчас молчит. Печать сохранена на устройстве; домашний контур работает офлайн.";
+      showToast("Сеть не разорвала экспедицию.");
     }
     playTone("miss");
   }
@@ -1527,39 +1910,157 @@ function categoryLabel(category) {
     monument: "памятник",
     park: "публичный парк",
     library: "библиотека",
-    community_centre: "общественный центр"
+    community_centre: "общественный центр",
+    home: "домашний контур"
   }[category] || "публичное место";
 }
 
-function revealThresholdPlace(place) {
-  $("#map-oracle").classList.remove("is-searching");
-  $("#map-oracle").classList.add("has-point");
-  $("#threshold-status").textContent = "ПОРОГ ВЫБРАН ИЗ ПУБЛИЧНЫХ POI";
-  $("#place-name").textContent = place.name;
-  $("#place-meta").textContent = `${categoryLabel(place.category)} · около ${place.distance} м · данные © участники OpenStreetMap · проверь доступность и маршрут`;
-  $("#find-threshold-button").classList.add("hidden");
-  const link = $("#open-map-link");
-  link.href = `https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=18/${place.latitude}/${place.longitude}`;
-  link.classList.remove("hidden");
+async function revealThresholdPlace(place) {
+  currentThreshold.place = {
+    id: place.id,
+    name: place.name,
+    category: place.category,
+    latitude:
+      place.latitude !== null && Number.isFinite(Number(place.latitude)) ? Number(place.latitude) : null,
+    longitude:
+      place.longitude !== null && Number.isFinite(Number(place.longitude)) ? Number(place.longitude) : null,
+    distance: Number(place.distance) || 0,
+    home: place.home === true
+  };
+  currentThreshold.status = place.home ? "arrived" : "revealed";
+  if (place.home) currentThreshold.arrivedAt = new Date().toISOString();
+  await persistActiveThreshold();
+  renderThresholdState();
 
-  const entryId = `threshold-${currentThreshold.seal.slice(0, 12)}`;
-  if (!state.chronicle.some((entry) => entry.id === entryId)) {
-    state.chronicle.unshift({
-      id: entryId,
-      type: "threshold",
-      title: place.name,
-      copy: currentThreshold.omen,
-      createdAt: new Date().toISOString(),
-      outcome: "open"
-    });
-    saveState();
-  }
+  const entry = {
+    id: currentThreshold.id,
+    type: "threshold",
+    title: place.name,
+    copy: currentThreshold.signs.join(" · "),
+    createdAt: currentThreshold.createdAt,
+    outcome: "open",
+    expedition: {
+      seal: currentThreshold.seal,
+      signs: currentThreshold.signs,
+      antiSign: currentThreshold.antiSign,
+      place: currentThreshold.place,
+      status: currentThreshold.status
+    }
+  };
+  const existingIndex = state.chronicle.findIndex((item) => item.id === entry.id);
+  if (existingIndex >= 0) state.chronicle.splice(existingIndex, 1, entry);
+  else state.chronicle.unshift(entry);
+  await saveState();
+  renderChronicle();
   playTone("reveal");
   vibrate([22, 50, 22, 50, 35]);
+  showToast(
+    place.home
+      ? "Домашний Порог раскрыт. Сверь три знака и сохрани одну деталь."
+      : "Место сохранено. Открой маршрут при свете и вернись к кнопке «Я у Порога»."
+  );
 }
 
-function resetThreshold() {
-  currentThreshold = { radius: 1200, tone: "quiet", seal: "", omen: "", intention: "" };
+async function revealHomeThreshold() {
+  const random = mulberry32(stringHash(`${currentThreshold.seal}|home-v2`));
+  await revealThresholdPlace({
+    id: `home-${currentThreshold.seal.slice(0, 12)}`,
+    name: pick(homeThresholdBank[currentThreshold.tone], random),
+    category: "home",
+    latitude: null,
+    longitude: null,
+    distance: 0,
+    home: true
+  });
+}
+
+async function expandThresholdSearch() {
+  currentThreshold.radius = 2500;
+  $$("#radius-choices .choice-chip").forEach((chip) =>
+    chip.classList.toggle("is-selected", chip.dataset.value === "2500")
+  );
+  await persistActiveThreshold();
+  findThreshold();
+}
+
+async function confirmThresholdArrival({ manual = false } = {}) {
+  if (!currentThreshold.place || currentThreshold.status !== "revealed") return;
+  const place = currentThreshold.place;
+  if (!manual && !place.home && Number.isFinite(place.latitude) && Number.isFinite(place.longitude)) {
+    try {
+      const position = await getPosition();
+      const distance = Math.round(
+        haversineMeters(
+          position.coords.latitude,
+          position.coords.longitude,
+          place.latitude,
+          place.longitude
+        )
+      );
+      if (distance > 350) {
+        showToast(`До Порога ещё около ${distance} м. Не рискуй ради отметки.`);
+        return;
+      }
+    } catch {
+      $("#manual-arrive-threshold-button").classList.remove("hidden");
+      showToast("GPS не подтвердил прибытие. Экспедиция сохранена — попробуй ещё раз из безопасного места.");
+      return;
+    }
+  }
+  currentThreshold.status = "arrived";
+  currentThreshold.arrivedAt = new Date().toISOString();
+  await persistActiveThreshold();
+  renderThresholdState();
+  playTone("arrival");
+  showToast("Прибытие принято. Теперь реальность отвечает на запечатанные знаки.");
+}
+
+function selectThresholdOutcome(outcome) {
+  if (!["exact", "near", "miss"].includes(outcome)) return;
+  currentThreshold.outcome = outcome;
+  $$(".threshold-outcomes button").forEach((button) =>
+    button.classList.toggle("is-selected", button.dataset.thresholdOutcome === outcome)
+  );
+  $("#complete-threshold-button").disabled = false;
+  persistActiveThreshold();
+  playTone(outcome === "miss" ? "miss" : "select");
+}
+
+async function completeThreshold() {
+  if (currentThreshold.status !== "arrived" || !currentThreshold.outcome) return;
+  currentThreshold.note = $("#threshold-note").value.trim().slice(0, 120);
+  currentThreshold.status = "completed";
+  currentThreshold.completedAt = new Date().toISOString();
+  currentThreshold.fragmentId = `Π-${currentThreshold.seal.slice(0, 7).toUpperCase()}`;
+
+  const entry = state.chronicle.find((item) => item.id === currentThreshold.id);
+  if (entry) {
+    entry.title = `${currentThreshold.fragmentId} · ${currentThreshold.place?.name || "Порог"}`;
+    entry.copy = currentThreshold.note || currentThreshold.signs.join(" · ");
+    entry.createdAt = currentThreshold.completedAt;
+    entry.outcome = currentThreshold.outcome;
+    entry.expedition = {
+      ...(entry.expedition || {}),
+      status: "completed",
+      fragmentId: currentThreshold.fragmentId,
+      note: currentThreshold.note,
+      outcome: currentThreshold.outcome,
+      completedAt: currentThreshold.completedAt
+    };
+  }
+  await persistActiveThreshold();
+  renderThresholdState();
+  renderChronicle();
+  playTone("fragment");
+  vibrate([18, 35, 18, 35, 55]);
+  showToast(`${currentThreshold.fragmentId} сохранён. Завтрашняя печать уже изменилась.`);
+}
+
+async function resetThreshold(options = {}) {
+  const persist = options.persist !== false;
+  currentThreshold = createThresholdState();
+  state.activeThreshold = null;
+  if (persist) await saveState();
   $("#threshold-form").reset();
   $("#intention-count").textContent = "0/64";
   $("#safety-confirm").checked = false;
@@ -1574,8 +2075,21 @@ function resetThreshold() {
   $("#map-oracle").classList.remove("is-searching", "has-point");
   $("#find-threshold-button").classList.remove("hidden");
   $("#find-threshold-button").disabled = false;
-  $("#find-threshold-button span").textContent = "Найти безопасный Порог";
+  $("#find-threshold-button span").textContent = "Раскрыть место рядом";
   $("#open-map-link").classList.add("hidden");
+  $("#arrive-threshold-button").classList.add("hidden");
+  $("#manual-arrive-threshold-button").classList.add("hidden");
+  $("#threshold-recovery").classList.add("hidden");
+  $("#arrival-panel").classList.add("hidden");
+  $("#threshold-complete").classList.add("hidden");
+  $("#place-name").textContent = "Сначала разреши геопозицию";
+  $("#place-meta").textContent =
+    "Координаты передаются публичным картографическим сервисам только для поиска; выбранная точка сохраняется локально для продолжения.";
+  $("#threshold-status").textContent = "ТОЧКА ЕЩЁ НЕ ВЫБРАНА";
+  $("#threshold-note").value = "";
+  $("#threshold-note-count").textContent = "0/120";
+  $("#sealed-signs").innerHTML = "";
+  $("#omen-copy").textContent = "—";
   updateThresholdAvailability();
 }
 
@@ -1613,15 +2127,27 @@ function detectInstallPrompt() {
   }
 }
 
+function scheduleMidnightRefresh() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 2, 0);
+  window.setTimeout(() => window.location.reload(), Math.max(1000, next.getTime() - now.getTime()));
+}
+
 function init() {
+  currentThreshold = state.activeThreshold
+    ? structuredClone(state.activeThreshold)
+    : createThresholdState();
   $("#day-label").textContent = localDateLabel().toUpperCase();
   $("#day-phase").textContent = timePhase();
   updateProfileUI();
   updateSoundUI();
   renderExistingDaily();
   renderChronicle();
+  renderThresholdState();
   updateThresholdAvailability();
   detectInstallPrompt();
+  scheduleMidnightRefresh();
 
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.target)));
   $$("[data-open]").forEach((button) => button.addEventListener("click", () => openLayer(button.dataset.open)));
@@ -1685,11 +2211,19 @@ function init() {
     } catch {
       storageProtection.mirror = "unavailable";
     }
+    try {
+      await deleteAppCaches();
+    } catch {
+      // Primary and mirrored user data are already gone; cache cleanup is best-effort.
+    }
+    placeSearchCache.clear();
     state = structuredClone(defaults);
+    currentThreshold = createThresholdState();
     storageProtection.localFound = false;
     storageProtection.localCorrupt = false;
     storageProtection.recovered = false;
     stopAmbientSound();
+    await resetThreshold({ persist: false });
     updateProfileUI();
     updateSoundUI();
     updateReturnCue();
@@ -1701,6 +2235,7 @@ function init() {
     $("#hero-copy").textContent =
       "Короткий личный ритуал создаст сегодняшний прогноз. Никакой магии — только психология внимания, символы и честная Хроника совпадений.";
     closeLayer($("#profile-sheet"));
+    await startAmbientSound();
     showToast("Локальные данные удалены. Звук снова включён по умолчанию.");
   });
 
@@ -1709,7 +2244,10 @@ function init() {
     openLayer("ritual-modal");
     playTone("tap");
   });
-  $("#show-forecast-button").addEventListener("click", () => renderForecast(state.daily[todayKey()]));
+  $("#show-forecast-button").addEventListener("click", () => {
+    const record = forecastForReturn();
+    if (record) renderForecast(record.forecast);
+  });
   $$(".energy-choices button").forEach((button) => {
     button.addEventListener("click", () => {
       currentRitual.energy = button.dataset.energy;
@@ -1721,9 +2259,12 @@ function init() {
 
   const holdButton = $("#hold-button");
   holdButton.addEventListener("pointerdown", startHold);
-  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) =>
+  ["pointerup", "pointercancel"].forEach((eventName) =>
     holdButton.addEventListener(eventName, cancelHold)
   );
+  holdButton.addEventListener("click", (event) => {
+    if (event.detail === 0) completeHoldAccessibly();
+  });
   $$("#card-choice button").forEach((button) =>
     button.addEventListener("click", () => chooseCard(Number(button.dataset.card)))
   );
@@ -1752,7 +2293,23 @@ function init() {
     button.addEventListener("click", () => selectChip("tone-choices", button))
   );
   $("#find-threshold-button").addEventListener("click", findThreshold);
-  $("#reset-threshold-button").addEventListener("click", resetThreshold);
+  $("#expand-threshold-button").addEventListener("click", expandThresholdSearch);
+  $("#home-threshold-button").addEventListener("click", revealHomeThreshold);
+  $("#home-threshold-now-button").addEventListener("click", revealHomeThreshold);
+  $("#arrive-threshold-button").addEventListener("click", () => confirmThresholdArrival());
+  $("#manual-arrive-threshold-button").addEventListener("click", () =>
+    confirmThresholdArrival({ manual: true })
+  );
+  $$(".threshold-outcomes button").forEach((button) =>
+    button.addEventListener("click", () => selectThresholdOutcome(button.dataset.thresholdOutcome))
+  );
+  $("#threshold-note").addEventListener("input", (event) => {
+    currentThreshold.note = event.target.value.slice(0, 120);
+    $("#threshold-note-count").textContent = `${currentThreshold.note.length}/120`;
+    persistActiveThreshold();
+  });
+  $("#complete-threshold-button").addEventListener("click", completeThreshold);
+  $("#reset-threshold-button").addEventListener("click", () => resetThreshold());
   $("#chronicle-start-button").addEventListener("click", () => setView("today"));
   $("#sound-toggle").addEventListener("click", toggleSound);
   document.addEventListener(
@@ -1777,9 +2334,7 @@ function init() {
   });
 
   if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
-    });
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
   window.setInterval(updateThresholdAvailability, 60000);
 
