@@ -1,20 +1,21 @@
 # MOIRÉ release QA
 
-Last full local run: 2026-07-28, clean origin, mobile browser, final `v6` service worker.
+Last full local run: 2026-07-28, clean and deterministic-fixture origins,
+mobile browsers, final `v7` service worker.
 
 ## Clean-install and layout
 
 - Fresh storage starts with sound enabled, no profile, no daily forecast, no Chronicle
   entries and no active Threshold.
-- `393 × 852` and `320 × 568` render without horizontal overflow.
+- `393 × 852` and `320 × 568` render without body-level horizontal overflow.
 - On `320 × 568`, the sealed Threshold search CTA is fully above the fold
   (`top=407`, `bottom=465` in the final clean run).
 - The bottom navigation remains pinned to the viewport on the narrow layout.
 - Every visible interactive control in the measured mobile state is at least
   `44 × 44` CSS px.
-- Final accessibility tree: 187 nodes and zero unnamed buttons, links, textboxes
-  or checkboxes.
-- HTML has 133 unique IDs, zero duplicate IDs and zero missing
+- Final mobile route state has zero unnamed visible buttons, links, textboxes
+  or checkboxes and zero visible controls below `44 × 44` CSS px.
+- HTML has 149 unique IDs, zero duplicate IDs and zero missing
   `for` / `aria-labelledby` / `aria-describedby` references.
 
 ## Sound
@@ -57,6 +58,14 @@ Last full local run: 2026-07-28, clean origin, mobile browser, final `v6` servic
 - The measured no-GPS fallback returned in `4010 ms`.
 - A deterministic mocked city success path selected a named OSM place, produced
   a valid map URL and survived reload at `status=revealed`.
+- A revealed city point now produces three independent destinations:
+  Apple Maps walking directions, Google Maps walking directions and an exact
+  OpenStreetMap marker. The Apple action was opened end-to-end and resolved to
+  Apple Maps walking directions for the fixture coordinate.
+- Route opening persists the provider and start time. Returning from Maps keeps
+  the same place and changes the live Reality channel to a route-return message.
+- At `320 × 568`, the route panel is 292px wide, the primary Apple action is
+  `258.7 × 73.2`, and both alternative map actions are `125.3 × 55`.
 - A near-place GPS fixture advanced to `status=arrived`.
 - Outcome and note survive reload before reward; the completion button restores
   enabled with the chosen outcome visibly selected.
@@ -89,13 +98,39 @@ Last full local run: 2026-07-28, clean origin, mobile browser, final `v6` servic
   in-memory Threshold, resets the UI and leaves no coordinate-bearing cache URL.
 - Final reset probe: `local=null`, `vault=null`, `active=null`, `currentSeal=""`,
   zero external or coordinate URLs.
-- `moire-oracle-v6` registers on a cold load without waiting for a missed
+- `moire-oracle-v7` registers on a cold load without waiting for a missed
   `window.load` event.
 - Its app shell contains exactly eight same-origin resources.
 - The 1.25 MiB audio and unused 2.50 MiB 1024px image are not precached.
 - A direct cross-origin Nominatim request did not enter Cache Storage.
-- Forced-network-offline reload succeeded from the final `v6` shell with zero
+- Forced-network-offline reload succeeded from the final `v7` shell with zero
   console errors.
+
+## Live Reality channel and notifications
+
+- The top action is a familiar `🔔` with an accessible state label; it is amber
+  only when system notification permission is actually granted.
+- First load, return after a pause, active Echo, mature Echo, revealed route,
+  return from Maps, arrival, completion, online and offline states have separate
+  deterministic phrase banks.
+- A mature Echo changes the persistent Reality channel, the Today navigation
+  label and the unread badge cue. The live signal is marked once per Echo so two
+  adjacent timers cannot emit the same transition twice.
+- Notification defaults are enabled, but the operating-system prompt is requested
+  only from the explicit **Разрешить сигналы** user gesture.
+- Capability probing confirmed `Notification`, service workers and
+  `ServiceWorkerRegistration.showNotification` on the Chromium test page.
+- A denied-permission profile renders the blocked state correctly and leaves all
+  in-app signals operational. The `320 × 568` signal sheet has no body overflow
+  and keeps its close control at `44 × 44`.
+- The service worker parses Web Push payloads, shows a tagged notification and
+  focuses or opens the matching `?signal=echo` / `?signal=threshold` route on tap.
+- The click target resolves from the service-worker scope, preserving the
+  `/moire-oracle-pwa/` GitHub Pages path instead of falling back to the domain root.
+- OS notification acceptance and banner presentation remain an iPhone device
+  acceptance test; the automation browser does not expose its permission chrome.
+- Closed-app background delivery is not claimed: the static GitHub Pages build
+  still needs an authenticated external subscription relay and push sender.
 
 ## Static checks
 
