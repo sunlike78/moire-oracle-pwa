@@ -10,12 +10,12 @@
     <meta name="apple-mobile-web-app-title" content="MOIRÉ" />
     <meta
       name="description"
-      content="MOIRÉ — иммерсивный оракул вероятностей, запечатанных знаков и городских совпадений."
+      content="MOIRÉ — игра-наблюдение: выборы фиксируются заранее, а совпадения и промахи сохраняются честно."
     />
-    <meta property="og:title" content="MOIRÉ — оракул вероятностей" />
+    <meta property="og:title" content="MOIRÉ — игра с совпадениями" />
     <meta
       property="og:description"
-      content="Спроси. Запечатай. Заметь. Персональные ритуалы, реальные экспедиции и честная хроника совпадений."
+      content="Получи короткую миссию или точку для прогулки, а затем проверь, как реальность ответила на заранее записанные детали."
     />
     <meta property="og:url" content="https://sunlike78.github.io/moire-oracle-pwa/" />
     <meta property="og:image" content="https://sunlike78.github.io/moire-oracle-pwa/assets/icon-512.png" />
@@ -26,12 +26,169 @@
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
     <link rel="icon" href="./assets/icon-192.png" />
     <link rel="stylesheet" href="./styles.css" />
-    <title>MOIRÉ — оракул вероятностей</title>
+    <title>MOIRÉ — игра с совпадениями</title>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
     <div class="aurora aurora-one" aria-hidden="true"></div>
     <div class="aurora aurora-two" aria-hidden="true"></div>
+
+    <section
+      class="onboarding hidden"
+      id="onboarding"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+    >
+      <div class="onboarding-noise" aria-hidden="true"></div>
+      <header class="onboarding-topbar">
+        <div class="onboarding-brand" aria-label="MOIRÉ">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <strong>MOIRÉ</strong>
+        </div>
+        <div class="onboarding-progress" aria-label="Прогресс знакомства">
+          <span class="is-active"></span><span></span><span></span><span></span>
+        </div>
+        <button class="onboarding-skip" id="skip-onboarding-button" type="button">
+          Пропустить
+        </button>
+      </header>
+
+      <div class="onboarding-stage">
+        <article class="onboarding-step is-active" data-onboarding-step="1" tabindex="-1">
+          <div class="onboarding-visual onboarding-visual-intro" aria-hidden="true">
+            <span class="intro-orbit intro-orbit-one"></span>
+            <span class="intro-orbit intro-orbit-two"></span>
+            <span class="intro-point"></span>
+          </div>
+          <span class="section-kicker">ИГРА-НАБЛЮДЕНИЕ · 60 СЕКУНД</span>
+          <h1 id="onboarding-title">Сначала выбор.<br />Потом — проверка.</h1>
+          <p class="onboarding-lead">
+            MOIRÉ заранее записывает несколько деталей, даёт короткую миссию или точку
+            для прогулки, а потом просит отметить: совпало, зацепило или мимо.
+          </p>
+          <div class="onboarding-purpose">
+            <div><strong>01</strong><span>выбор фиксируется заранее</span></div>
+            <div><strong>02</strong><span>ты возвращаешься в обычный мир</span></div>
+            <div><strong>03</strong><span>результат сохраняется без подгонки</span></div>
+          </div>
+          <p class="onboarding-why">
+            Зачем: вынырнуть из рутины, внимательнее посмотреть вокруг и превратить
+            пять минут или прогулку в личную игру с совпадениями.
+          </p>
+          <button class="primary-button onboarding-next" type="button" data-onboarding-next="2">
+            <span>Показать принцип</span><span aria-hidden="true">→</span>
+          </button>
+        </article>
+
+        <article class="onboarding-step" data-onboarding-step="2" tabindex="-1">
+          <span class="section-kicker">ПРОБА · ВЫБОР ДО РЕЗУЛЬТАТА</span>
+          <h2>Выбери один знак сейчас.</h2>
+          <p class="onboarding-lead">
+            Не ищи значение. Нажми на тот, который первым притянул взгляд.
+          </p>
+          <div class="onboarding-sigils" role="group" aria-label="Выбрать пробный знак">
+            <button type="button" data-onboarding-sigil="circle" aria-label="Круг">
+              <span aria-hidden="true">◯</span><small>КРУГ</small>
+            </button>
+            <button type="button" data-onboarding-sigil="rift" aria-label="Разлом">
+              <span aria-hidden="true">⌁</span><small>РАЗЛОМ</small>
+            </button>
+            <button type="button" data-onboarding-sigil="three" aria-label="Три точки">
+              <span aria-hidden="true">∴</span><small>ТРИ ТОЧКИ</small>
+            </button>
+          </div>
+          <div class="onboarding-seal hidden" id="onboarding-seal" aria-live="polite">
+            <span>ЗАПИСЬ СДЕЛАНА</span>
+            <strong id="onboarding-seal-copy">—</strong>
+            <small>MOIRÉ больше не сможет заменить этот выбор после события.</small>
+          </div>
+          <div class="onboarding-actions">
+            <button class="text-button" type="button" data-onboarding-back="1">Назад</button>
+            <button
+              class="primary-button onboarding-next"
+              id="seal-onboarding-choice"
+              type="button"
+              data-onboarding-next="3"
+              disabled
+            >
+              <span>Запечатать выбор</span><span aria-hidden="true">✦</span>
+            </button>
+          </div>
+        </article>
+
+        <article class="onboarding-step" data-onboarding-step="3" tabindex="-1">
+          <span class="section-kicker">ГЛАВНОЕ ПРАВИЛО</span>
+          <h2>Реальность отвечает после записи.</h2>
+          <p class="onboarding-lead">
+            Поэтому совпадение нельзя придумать задним числом, а промах нельзя стереть.
+            В этом вся игра.
+          </p>
+          <div class="onboarding-proof">
+            <span id="onboarding-proof-symbol" aria-hidden="true">◯</span>
+            <div>
+              <small>ТВОЙ ПРОБНЫЙ ВЫБОР</small>
+              <strong id="onboarding-proof-copy">Круг уже запечатан.</strong>
+            </div>
+          </div>
+          <h3>Как хочешь попробовать впервые?</h3>
+          <div class="onboarding-paths" role="group" aria-label="Выбрать первый режим">
+            <button type="button" data-onboarding-path="quick">
+              <span aria-hidden="true">03:00</span>
+              <strong>Пять минут здесь</strong>
+              <small>Личный прогноз → задание → Эхо через три минуты.</small>
+            </button>
+            <button type="button" data-onboarding-path="walk">
+              <span aria-hidden="true">⌖</span>
+              <strong>Прогулка к точке</strong>
+              <small>Три знака → безопасное место рядом → честная сверка.</small>
+            </button>
+          </div>
+          <div class="onboarding-actions">
+            <button class="text-button" type="button" data-onboarding-back="2">Назад</button>
+            <button
+              class="primary-button onboarding-next"
+              id="choose-onboarding-path"
+              type="button"
+              data-onboarding-next="4"
+              disabled
+            >
+              <span>Продолжить</span><span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </article>
+
+        <article class="onboarding-step" data-onboarding-step="4" tabindex="-1">
+          <span class="section-kicker">ЛЕГЕНДА И СЛОВАРЬ</span>
+          <h2>Прибор для слабых помех.</h2>
+          <p class="onboarding-legend">
+            По легенде, MOIRÉ — найденный прибор наблюдения. Он не знает будущего.
+            Он ловит помехи между вниманием и случайностью: записывает условия до события
+            и помнит ответ после него.
+          </p>
+          <div class="onboarding-glossary">
+            <div><strong>Сигнал</strong><span>конкретная деталь или короткое задание</span></div>
+            <div><strong>Эхо</strong><span>вторая часть задания, которая откроется позже</span></div>
+            <div><strong>Порог</strong><span>необязательная прогулка к точке рядом</span></div>
+            <div><strong>Фрагмент</strong><span>сохранённый итог: совпало, зацепило или мимо</span></div>
+          </div>
+          <div class="onboarding-final-route">
+            <small>ТВОЙ ПЕРВЫЙ МАРШРУТ</small>
+            <strong id="onboarding-final-copy">Проверка дня займёт около пяти минут.</strong>
+          </div>
+          <div class="onboarding-actions">
+            <button class="text-button" type="button" data-onboarding-back="3">Назад</button>
+            <button class="primary-button" id="complete-onboarding-button" type="button">
+              <span>Начать первую проверку</span><span aria-hidden="true">✦</span>
+            </button>
+          </div>
+          <p class="onboarding-disclaimer">
+            Это развлекательный эксперимент о внимании, а не источник решений о здоровье,
+            деньгах, отношениях или безопасности.
+          </p>
+        </article>
+      </div>
+    </section>
 
     <div class="app-shell">
       <header class="topbar">
@@ -41,7 +198,7 @@
           </span>
           <span class="brand-copy">
             <strong>MOIRÉ</strong>
-            <small>оракул вероятностей</small>
+            <small>игра с совпадениями</small>
           </span>
         </button>
 
@@ -90,13 +247,14 @@
             </div>
 
             <p class="eyebrow" id="personal-greeting">ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ</p>
-            <h1 id="today-title">Сегодня случайность<br />смотрит в твою сторону.</h1>
+            <h1 id="today-title">Проверь, как случайность<br />ответит на твой выбор.</h1>
             <p class="hero-copy" id="hero-copy">
-              Дай системе три сигнала. Прогноз будет запечатан до того, как ты его увидишь.
+              MOIRÉ заранее фиксирует детали, даёт короткое задание и сохраняет
+              и попадания, и промахи. Одна проверка займёт около пяти минут.
             </p>
 
             <button class="primary-button ritual-cta" id="open-day-button" type="button">
-              <span>Открыть этот день</span>
+              <span>Начать проверку дня</span>
               <span class="button-glyph" aria-hidden="true">✦</span>
             </button>
 
@@ -139,15 +297,17 @@
             <section class="daily-loop" id="daily-loop" aria-labelledby="daily-loop-title">
               <div class="loop-header">
                 <div>
-                  <span class="section-kicker">ПЕТЛЯ ВОЗВРАЩЕНИЯ</span>
-                  <h3 id="daily-loop-title">Оставь дню незакрытый вопрос.</h3>
+                  <span class="section-kicker">ПРОВЕРКА С ВОЗВРАЩЕНИЕМ</span>
+                  <h3 id="daily-loop-title">Выбери знак и получи короткую миссию.</h3>
                 </div>
                 <span class="loop-progress" id="loop-progress">0/3</span>
               </div>
 
               <div class="loop-stage" id="loop-symbol-stage">
-                <span class="loop-step">ШАГ 01 · ЛИЧНЫЙ СИМВОЛ</span>
-                <p id="loop-symbol-copy">Не анализируй. Выбери знак, который первым показался знакомым.</p>
+                <span class="loop-step">ШАГ 01 · ВЫБОР ЗАРАНЕЕ</span>
+                <p id="loop-symbol-copy">
+                  Выбери один знак сейчас. Он изменит миссию и сохранится до открытия Эха.
+                </p>
                 <div class="sigil-choices" role="group" aria-label="Выбор личного символа">
                   <button type="button" data-sigil="circle" aria-label="Круг">
                     <span aria-hidden="true">◯</span>
@@ -165,11 +325,11 @@
               </div>
 
               <div class="loop-stage hidden" id="loop-mission-stage">
-                <span class="loop-step">ШАГ 02 · КОНТРАКТ ВНИМАНИЯ</span>
+                <span class="loop-step">ШАГ 02 · МИССИЯ НА ТРИ МИНУТЫ</span>
                 <div class="mission-seal">
                   <span id="mission-sigil" aria-hidden="true">◯</span>
                   <div>
-                    <small>ТВОЯ МИССИЯ ДО ЭХА</small>
+                    <small>ЧТО НУЖНО ЗАМЕТИТЬ ДО ЭХА</small>
                     <strong id="mission-copy">—</strong>
                   </div>
                 </div>
@@ -188,9 +348,9 @@
               </div>
 
               <div class="loop-stage hidden" id="loop-echo-stage">
-                <span class="loop-step">ШАГ 03 · ЭХО</span>
+                <span class="loop-step">ШАГ 03 · ЧЕСТНАЯ СВЕРКА</span>
                 <blockquote id="echo-copy">—</blockquote>
-                <p>Как этот сигнал лёг на реальность?</p>
+                <p>Это действительно совпало, только зацепило или прошло мимо?</p>
                 <div class="echo-outcomes" role="group" aria-label="Закрыть дневную петлю">
                   <button type="button" data-echo-outcome="exact">Совпало</button>
                   <button type="button" data-echo-outcome="near">Зацепило</button>
@@ -199,7 +359,7 @@
               </div>
 
               <div class="loop-stage loop-complete hidden" id="loop-complete-stage">
-                <span class="loop-step">ПЕТЛЯ ЗАМКНУТА</span>
+                <span class="loop-step">РЕЗУЛЬТАТ СОХРАНЁН</span>
                 <div class="fragment-mark" id="fragment-mark">Φ-000</div>
                 <h4 id="fragment-title">Фрагмент сохранён в Хронике.</h4>
                 <p id="fragment-copy">Завтра система свяжет новый сигнал с сегодняшним выбором.</p>
@@ -259,11 +419,12 @@
             <div class="threshold-glyph" aria-hidden="true">
               <span></span>
             </div>
-            <span class="section-kicker">ЭКСПЕДИЦИЯ · БЕТА</span>
-            <h1 id="threshold-title">Место, которое<br />не искало тебя.</h1>
+            <span class="section-kicker">ПРОГУЛКА С ЗАДАНИЕМ · БЕТА</span>
+            <h1 id="threshold-title">Получи точку<br />для наблюдения рядом.</h1>
             <p>
-              Задай намерение. MOIRÉ запечатает его до выбора точки и найдёт поблизости
-              предполагаемое публичное место из OpenStreetMap или даст домашний контур.
+              Сначала MOIRÉ запишет намерение и три знака. Только потом карта выберет
+              предполагаемое публичное место рядом. Ты проверишь маршрут и отметишь,
+              что действительно совпало.
             </p>
           </div>
 
@@ -459,10 +620,13 @@
             <div class="empty-orbit" aria-hidden="true">
               <span></span>
             </div>
-            <h2>Пока здесь тихо.</h2>
-            <p>Открой день или пройди к Порогу — и первый след появится в хронике.</p>
+            <h2>Здесь будет честный результат.</h2>
+            <p>
+              После первой проверки здесь появятся и совпадения, и промахи.
+              Сохранённые детали повлияют на следующий день.
+            </p>
             <button class="secondary-button" id="chronicle-start-button" type="button">
-              <span>Открыть сегодняшний день</span>
+              <span>Начать первую проверку</span>
               <span aria-hidden="true">→</span>
             </button>
           </section>
@@ -644,7 +808,7 @@
       </div>
     </section>
 
-    <section class="modal hidden" id="ritual-modal" role="dialog" aria-modal="true" aria-labelledby="ritual-title">
+    <section class="modal hidden" id="ritual-modal" role="dialog" aria-modal="true" aria-label="Создание дневной проверки">
       <div class="modal-panel ritual-panel">
         <div class="ritual-progress">
           <span class="is-active"></span>
@@ -653,9 +817,9 @@
         </div>
 
         <div class="ritual-step is-active" data-step="1">
-          <span class="section-kicker">СИГНАЛ 01 · СОСТОЯНИЕ</span>
-          <h2 id="ritual-title">Как сегодня звучит<br />твоя энергия?</h2>
-          <p>Не думай дольше трёх секунд.</p>
+          <span class="section-kicker">ШАГ 1 ИЗ 3 · НАСТРОЙКА ТОНА</span>
+          <h2 id="ritual-title">Какой у тебя сейчас<br />запас сил?</h2>
+          <p>Ответ влияет на тон заданий. Выбери ближайшее состояние.</p>
           <div class="energy-choices">
             <button type="button" data-energy="low">
               <span class="energy-wave wave-low" aria-hidden="true"></span>
@@ -676,9 +840,9 @@
         </div>
 
         <div class="ritual-step" data-step="2">
-          <span class="section-kicker">СИГНАЛ 02 · ПРИСУТСТВИЕ</span>
-          <h2>Удерживай,<br />пока круг не замкнётся.</h2>
-          <p>Отпусти раньше — и печать изменится.</p>
+          <span class="section-kicker">ШАГ 2 ИЗ 3 · ЗАПИСЬ МОМЕНТА</span>
+          <h2>Удерживай 1,8 секунды,<br />чтобы записать момент.</h2>
+          <p>Время удержания войдёт в личный ключ. Раннее отпускание ничего не сохранит.</p>
           <button class="hold-button" id="hold-button" type="button" aria-label="Нажать и удерживать">
             <span class="hold-ring"></span>
             <span class="hold-core">держи</span>
@@ -687,9 +851,9 @@
         </div>
 
         <div class="ritual-step" data-step="3">
-          <span class="section-kicker">СИГНАЛ 03 · ВЫБОР</span>
-          <h2>Одна карта уже<br />знает твой вопрос.</h2>
-          <p>Выбери не красивую — ту, которая первой позвала.</p>
+          <span class="section-kicker">ШАГ 3 ИЗ 3 · СЛУЧАЙНЫЙ КЛЮЧ</span>
+          <h2>Выбери одну<br />из трёх закрытых карт.</h2>
+          <p>Номер карты изменит случайный ключ. Текст создастся только после выбора.</p>
           <div class="card-choice" id="card-choice">
             <button type="button" data-card="0" aria-label="Первая карта"><span>Ⅰ</span></button>
             <button type="button" data-card="1" aria-label="Вторая карта"><span>Ⅱ</span></button>
@@ -702,12 +866,12 @@
             <div></div>
             <span>✦</span>
           </div>
-          <span class="section-kicker">ПЕЧАТЬ СОЗДАНА</span>
-          <h2 id="reveal-title">Контур совпал.</h2>
-          <p id="reveal-copy">Прогноз существовал до раскрытия.</p>
+          <span class="section-kicker">УСЛОВИЯ ЗАПИСАНЫ</span>
+          <h2 id="reveal-title">Проверка готова.</h2>
+          <p id="reveal-copy">Личный текст и его подпись уже созданы. Теперь их можно раскрыть.</p>
           <strong class="full-seal" id="ritual-seal">—</strong>
           <button class="primary-button" id="reveal-forecast-button" type="button">
-            Увидеть, что открылось
+            Открыть прогноз и миссию
           </button>
         </div>
 
@@ -747,15 +911,29 @@
 
     <section class="modal hidden" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title">
       <button class="modal-backdrop" type="button" data-close aria-label="Закрыть"></button>
-      <div class="modal-panel compact-modal">
+      <div class="modal-panel compact-modal about-modal-panel">
         <button class="modal-close" type="button" data-close aria-label="Закрыть">×</button>
-        <span class="section-kicker">КАК ЭТО РАБОТАЕТ</span>
-        <h2 id="about-title">Три слоя одной иллюзии.</h2>
+        <span class="section-kicker">ЛЕГЕНДА, ПРАВИЛА И ЭФФЕКТЫ</span>
+        <h2 id="about-title">Что такое MOIRÉ?</h2>
+        <p>
+          Это игра-наблюдение. Она записывает выборы до события, предлагает короткую
+          миссию или точку для прогулки и сохраняет честный результат после возвращения.
+        </p>
+        <div class="about-loop">
+          <span>ВЫБОР ЗАРАНЕЕ</span><i>→</i><span>СОБЫТИЕ В ЖИЗНИ</span><i>→</i><span>СВЕРКА</span>
+        </div>
+        <p class="about-legend">
+          По легенде, MOIRÉ — прибор, ловящий слабые помехи между вниманием и случайностью.
+          Он не предсказывает будущее: атмосфера создаёт тайну, а Хроника не даёт забыть промахи.
+        </p>
         <div class="truth-list">
           <div><span class="truth-tag pattern">PATTERN</span><p>Психологический паттерн или наблюдаемая закономерность.</p></div>
           <div><span class="truth-tag myth">MYTH</span><p>Поэтическая астрология и символический язык.</p></div>
           <div><span class="truth-tag chance">CHANCE</span><p>Честная случайность, запечатанная до результата.</p></div>
         </div>
+        <button class="secondary-button" id="replay-onboarding-button" type="button">
+          <span>Пройти знакомство ещё раз</span><span aria-hidden="true">→</span>
+        </button>
         <p class="about-note">
           MOIRÉ — художественный эксперимент о внимании. Не используй его для решений о здоровье,
           деньгах, безопасности или отношениях.

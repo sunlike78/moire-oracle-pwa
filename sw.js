@@ -1,4 +1,4 @@
-const CACHE_NAME = "moire-oracle-v7";
+const CACHE_NAME = "moire-oracle-v8";
 const APP_SHELL = [
   "./",
   "./index.html",

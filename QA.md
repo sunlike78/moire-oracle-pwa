@@ -1,7 +1,34 @@
 # MOIRÉ release QA
 
 Last full local run: 2026-07-28, clean and deterministic-fixture origins,
-mobile browsers, final `v7` service worker.
+mobile browsers, final `v8` service worker.
+
+## First-run story and onboarding
+
+- A state with no `onboarding` record migrates to an incomplete onboarding and
+  opens the prologue automatically after the first page paint.
+- Step 1 states the purpose before any internal vocabulary: choices are recorded
+  before the event, the player returns to ordinary life, and exact / near / miss
+  are all retained.
+- The trial sigil path was completed end-to-end. Choosing `Разлом` displayed
+  `Разлом выбран в 16:41`, enabled the seal action and carried the identical
+  symbol and label into the proof screen.
+- Neither first route is preselected. Choosing `quick` changed the final promise
+  to the three-minute Echo and launched the real ritual at step 1. Choosing
+  `walk` changed the final promise to three signs plus a nearby point, opened the
+  Threshold view and focused the intention input.
+- Completion persisted `completed`, timestamp, chosen sigil and chosen path.
+  Reload did not replay onboarding.
+- Skip persisted completion without inventing a sigil or path. The MOIRÉ logo
+  opens a plain-language explanation and can replay a reset prologue at any time.
+- The background app is inert while onboarding is open. Progress focus moves to
+  the active article rather than creating a false selected state on the first
+  button.
+- `393 × 852` fits the complete first screen and CTA (`bottom=820`) with zero
+  body overflow. `320 × 568` remains vertically scrollable with zero body
+  overflow; all visible onboarding controls are named and at least `44 × 44`.
+- Forced-network-offline reload restored the first-run prologue from the `v8`
+  app shell with the correct title and zero console warnings or errors.
 
 ## Clean-install and layout
 
@@ -15,7 +42,7 @@ mobile browsers, final `v7` service worker.
   `44 × 44` CSS px.
 - Final mobile route state has zero unnamed visible buttons, links, textboxes
   or checkboxes and zero visible controls below `44 × 44` CSS px.
-- HTML has 149 unique IDs, zero duplicate IDs and zero missing
+- HTML has 161 unique IDs, zero duplicate IDs and zero missing
   `for` / `aria-labelledby` / `aria-describedby` references.
 
 ## Sound
@@ -98,12 +125,12 @@ mobile browsers, final `v7` service worker.
   in-memory Threshold, resets the UI and leaves no coordinate-bearing cache URL.
 - Final reset probe: `local=null`, `vault=null`, `active=null`, `currentSeal=""`,
   zero external or coordinate URLs.
-- `moire-oracle-v7` registers on a cold load without waiting for a missed
+- `moire-oracle-v8` registers on a cold load without waiting for a missed
   `window.load` event.
 - Its app shell contains exactly eight same-origin resources.
 - The 1.25 MiB audio and unused 2.50 MiB 1024px image are not precached.
 - A direct cross-origin Nominatim request did not enter Cache Storage.
-- Forced-network-offline reload succeeded from the final `v7` shell with zero
+- Forced-network-offline reload succeeded from the final `v8` shell with zero
   console errors.
 
 ## Live Reality channel and notifications

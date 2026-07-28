@@ -23,6 +23,12 @@ const defaults = {
   notificationsEnabled: true,
   notificationPreferenceSet: false,
   installDismissed: false,
+  onboarding: {
+    completed: false,
+    completedAt: null,
+    sigil: "",
+    path: ""
+  },
   daily: {},
   chronicle: [],
   activeThreshold: null,
@@ -269,6 +275,11 @@ let notificationDeliveriesInFlight = new Set();
 let realityTimer = null;
 let hiddenAt = null;
 let serviceWorkerRegistration = null;
+let onboardingDraft = {
+  step: 1,
+  sigil: "",
+  path: ""
+};
 let storageProtection = {
   localFound: initialLocalState.found,
   localCorrupt: initialLocalState.corrupt,
@@ -370,6 +381,7 @@ function normalizeState(saved) {
   const source = isPlainObject(saved) ? saved : {};
   const sourceProfile = isPlainObject(source.profile) ? source.profile : {};
   const sourceReality = isPlainObject(source.reality) ? source.reality : {};
+  const sourceOnboarding = isPlainObject(source.onboarding) ? source.onboarding : {};
   const hasSoundPreference = source.soundPreferenceSet === true;
   const hasNotificationPreference = source.notificationPreferenceSet === true;
 
@@ -384,6 +396,19 @@ function normalizeState(saved) {
     notificationsEnabled: hasNotificationPreference ? source.notificationsEnabled !== false : true,
     notificationPreferenceSet: hasNotificationPreference,
     installDismissed: source.installDismissed === true,
+    onboarding: {
+      completed: sourceOnboarding.completed === true,
+      completedAt:
+        typeof sourceOnboarding.completedAt === "string"
+          ? sourceOnboarding.completedAt
+          : null,
+      sigil: ["circle", "rift", "three"].includes(sourceOnboarding.sigil)
+        ? sourceOnboarding.sigil
+        : "",
+      path: ["quick", "walk"].includes(sourceOnboarding.path)
+        ? sourceOnboarding.path
+        : ""
+    },
     daily: isPlainObject(source.daily) ? source.daily : {},
     chronicle: Array.isArray(source.chronicle) ? source.chronicle : [],
     activeThreshold: normalizeThreshold(source.activeThreshold),
@@ -1196,6 +1221,150 @@ function handleVisibilityReturn() {
   armPendingNotifications();
 }
 
+function onboardingSigilLabel(sigil) {
+  return {
+    circle: "Круг",
+    rift: "Разлом",
+    three: "Три точки"
+  }[sigil] || "Знак";
+}
+
+function onboardingSigilSymbol(sigil) {
+  return {
+    circle: "◯",
+    rift: "⌁",
+    three: "∴"
+  }[sigil] || "◯";
+}
+
+function showOnboardingStep(step) {
+  const safeStep = Math.min(4, Math.max(1, Number(step) || 1));
+  onboardingDraft.step = safeStep;
+  $$(".onboarding-step").forEach((element) => {
+    element.classList.toggle(
+      "is-active",
+      Number(element.dataset.onboardingStep) === safeStep
+    );
+  });
+  $$(".onboarding-progress span").forEach((element, index) => {
+    element.classList.toggle("is-active", index < safeStep);
+  });
+  $("#onboarding").scrollTo({ top: 0, behavior: "smooth" });
+  window.setTimeout(() => {
+    $(".onboarding-step.is-active")?.focus({ preventScroll: true });
+  }, 80);
+}
+
+function resetOnboardingDraft() {
+  onboardingDraft = {
+    step: 1,
+    sigil: "",
+    path: ""
+  };
+  $$("[data-onboarding-sigil], [data-onboarding-path]").forEach((button) =>
+    button.classList.remove("is-selected")
+  );
+  $("#onboarding-seal").classList.add("hidden");
+  $("#seal-onboarding-choice").disabled = true;
+  $("#choose-onboarding-path").disabled = true;
+  $("#onboarding-proof-symbol").textContent = "◯";
+  $("#onboarding-proof-copy").textContent = "Знак ещё не выбран.";
+  $("#onboarding-final-copy").textContent =
+    "Проверка дня займёт около пяти минут.";
+  $("#complete-onboarding-button span").textContent =
+    "Начать первую проверку";
+  showOnboardingStep(1);
+}
+
+function openOnboarding({ restart = false } = {}) {
+  const onboarding = $("#onboarding");
+  if (!onboarding) return;
+  if (restart || !onboardingDraft.sigil) resetOnboardingDraft();
+  onboarding.classList.remove("hidden");
+  $(".app-shell").inert = true;
+  document.body.style.overflow = "hidden";
+  $("#install-banner").classList.add("hidden");
+  window.setTimeout(() => {
+    $(".onboarding-step.is-active")?.focus({ preventScroll: true });
+  }, 100);
+}
+
+async function skipOnboarding() {
+  state.onboarding = {
+    completed: true,
+    completedAt: new Date().toISOString(),
+    sigil: onboardingDraft.sigil,
+    path: onboardingDraft.path
+  };
+  await saveState();
+  $("#onboarding").classList.add("hidden");
+  $(".app-shell").inert = false;
+  document.body.style.overflow = "";
+  showToast("Знакомство можно повторить через логотип MOIRÉ.");
+}
+
+function selectOnboardingSigil(sigil) {
+  if (!["circle", "rift", "three"].includes(sigil)) return;
+  onboardingDraft.sigil = sigil;
+  $$("[data-onboarding-sigil]").forEach((button) =>
+    button.classList.toggle("is-selected", button.dataset.onboardingSigil === sigil)
+  );
+  const label = onboardingSigilLabel(sigil);
+  const time = formatSignalTime();
+  $("#onboarding-seal-copy").textContent = `${label} выбран в ${time}.`;
+  $("#onboarding-seal").classList.remove("hidden");
+  $("#seal-onboarding-choice").disabled = false;
+  $("#onboarding-proof-symbol").textContent = onboardingSigilSymbol(sigil);
+  $("#onboarding-proof-copy").textContent = `${label} уже запечатан.`;
+  playTone("select");
+  vibrate(10);
+}
+
+function selectOnboardingPath(path) {
+  if (!["quick", "walk"].includes(path)) return;
+  onboardingDraft.path = path;
+  $$("[data-onboarding-path]").forEach((button) =>
+    button.classList.toggle("is-selected", button.dataset.onboardingPath === path)
+  );
+  $("#choose-onboarding-path").disabled = false;
+  const walking = path === "walk";
+  $("#onboarding-final-copy").textContent = walking
+    ? "Сначала три знака, затем безопасная точка для прогулки рядом."
+    : "Личный прогноз, короткое задание и Эхо через три минуты.";
+  $("#complete-onboarding-button span").textContent = walking
+    ? "Перейти к прогулке"
+    : "Начать проверку дня";
+  playTone("select");
+  vibrate(10);
+}
+
+async function completeOnboarding() {
+  if (!onboardingDraft.sigil || !onboardingDraft.path) return;
+  state.onboarding = {
+    completed: true,
+    completedAt: new Date().toISOString(),
+    sigil: onboardingDraft.sigil,
+    path: onboardingDraft.path
+  };
+  await saveState();
+  $("#onboarding").classList.add("hidden");
+  $(".app-shell").inert = false;
+  document.body.style.overflow = "";
+  playTone("reveal");
+  vibrate([16, 36, 24]);
+
+  if (onboardingDraft.path === "walk") {
+    setView("threshold");
+    window.setTimeout(() => $("#intention-input").focus({ preventScroll: true }), 380);
+    showToast("Сначала намерение и три знака. Координата появится только после печати.");
+    return;
+  }
+
+  setView("today");
+  resetRitual();
+  openLayer("ritual-modal");
+}
+
 function setView(target) {
   $$(".view").forEach((view) => view.classList.toggle("is-active", view.dataset.view === target));
   $$(".nav-item").forEach((item) => {
@@ -1656,7 +1825,7 @@ function renderExistingDaily() {
       ? `${state.profile.name.toUpperCase()}, НОВЫЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ`
       : "ТВОЙ ДЕНЬ ЕЩЁ НЕ ОТКРЫТ";
     $("#hero-copy").textContent =
-      "Дай системе три сигнала. Новый прогноз свяжется с сохранёнными фрагментами.";
+      "MOIRÉ заранее фиксирует детали, даёт короткое задание и сохраняет и попадания, и промахи. Одна проверка займёт около пяти минут.";
     return;
   }
   $("#open-day-button").classList.add("hidden");
@@ -1678,7 +1847,8 @@ function renderExistingDaily() {
       : "Запечатанное Эхо созрело. Оно не откроется без твоего возвращения.";
     $("#show-forecast-button").textContent = "Открыть созревшее Эхо";
   } else if (loop) {
-    $("#hero-copy").textContent = "Контракт внимания действует. Эхо откроется после короткой паузы.";
+    $("#hero-copy").textContent =
+      "Короткая миссия уже идёт. Вторая часть — Эхо — откроется через три минуты.";
     $("#show-forecast-button").textContent = "Проверить Эхо";
   } else {
     $("#hero-copy").textContent = "Прогноз сохранён. Выбери личный символ, чтобы день продолжил отвечать без геопозиции.";
@@ -1716,17 +1886,19 @@ function renderDailyLoop(forecast = state.daily[todayKey()]) {
     const previousId = previous?.title.match(/Φ-[A-Z0-9]{3,8}/u)?.[0];
     symbolStage.classList.remove("hidden");
     $("#loop-progress").textContent = "0/3";
-    $("#daily-loop-title").textContent = previous ? "Вчерашний фрагмент снова на линии." : "Оставь дню незакрытый вопрос.";
+    $("#daily-loop-title").textContent = previous
+      ? "Прошлый результат войдёт в новую проверку."
+      : "Выбери знак и получи короткую миссию.";
     $("#loop-symbol-copy").textContent = previous
-      ? `${previousId || "Прошлый фрагмент"} изменит сегодняшнюю цепь. Выбери новый знак первым импульсом.`
-      : "Не анализируй. Выбери знак, который первым показался знакомым.";
+      ? `${previousId || "Прошлый фрагмент"} уже добавлен в случайный ключ. Теперь выбери новый знак до получения миссии.`
+      : "Выбери один знак сейчас. Он изменит миссию и сохранится до открытия Эха.";
     return;
   }
 
   if (loop.closedAt) {
     completeStage.classList.remove("hidden");
     $("#loop-progress").textContent = "3/3";
-    $("#daily-loop-title").textContent = "Контур замкнулся.";
+    $("#daily-loop-title").textContent = "Результат сохранён в Хронике.";
     $("#fragment-mark").textContent = loop.fragmentId;
     $("#fragment-title").textContent = `${loop.rarityLabel} сохранён в Хронике.`;
     $("#fragment-copy").textContent = loop.fragmentCopy;
@@ -1736,14 +1908,14 @@ function renderDailyLoop(forecast = state.daily[todayKey()]) {
   if (loop.revealedAt) {
     echoStage.classList.remove("hidden");
     $("#loop-progress").textContent = "2/3";
-    $("#daily-loop-title").textContent = "Сверь Эхо с реальностью.";
+    $("#daily-loop-title").textContent = "Сверь открытую фразу с тем, что произошло.";
     $("#echo-copy").textContent = loop.echo;
     return;
   }
 
   missionStage.classList.remove("hidden");
   $("#loop-progress").textContent = "1/3";
-  $("#daily-loop-title").textContent = "Контракт внимания действует.";
+  $("#daily-loop-title").textContent = "Миссия идёт. Вторая часть откроется через три минуты.";
   $("#mission-sigil").textContent = sigilMeta[loop.sigil]?.symbol || "◯";
   $("#mission-copy").textContent = loop.mission;
 
@@ -1808,7 +1980,7 @@ function selectDailySigil(sigil) {
   armPendingNotifications();
   playTone("seal");
   vibrate([15, 35, 18]);
-  showToast("Контракт принят. Первое Эхо созреет через 3 минуты — возвращение завершит цепь.");
+  showToast("Выбор записан. Выполни миссию и вернись за второй частью через три минуты.");
 }
 
 function revealDailyEcho() {
@@ -2731,6 +2903,28 @@ function init() {
     tag.tabIndex = 0;
     tag.addEventListener("click", () => openLayer("about-modal"));
   });
+  $$("[data-onboarding-next]").forEach((button) => {
+    button.addEventListener("click", () => showOnboardingStep(button.dataset.onboardingNext));
+  });
+  $$("[data-onboarding-back]").forEach((button) => {
+    button.addEventListener("click", () => showOnboardingStep(button.dataset.onboardingBack));
+  });
+  $$("[data-onboarding-sigil]").forEach((button) => {
+    button.addEventListener("click", () =>
+      selectOnboardingSigil(button.dataset.onboardingSigil)
+    );
+  });
+  $$("[data-onboarding-path]").forEach((button) => {
+    button.addEventListener("click", () =>
+      selectOnboardingPath(button.dataset.onboardingPath)
+    );
+  });
+  $("#skip-onboarding-button").addEventListener("click", skipOnboarding);
+  $("#complete-onboarding-button").addEventListener("click", completeOnboarding);
+  $("#replay-onboarding-button").addEventListener("click", () => {
+    closeLayer($("#about-modal"));
+    openOnboarding({ restart: true });
+  });
 
   $("#profile-button").addEventListener("click", () => openLayer("profile-sheet"));
   $("#signal-toggle").addEventListener("click", () => {
@@ -2818,12 +3012,13 @@ function init() {
     $("#open-day-button").classList.remove("hidden");
     $("#show-forecast-button").classList.add("hidden");
     $("#hero-copy").textContent =
-      "Короткий личный ритуал создаст сегодняшний прогноз. Никакой магии — только психология внимания, символы и честная Хроника совпадений.";
+      "MOIRÉ заранее фиксирует детали, даёт короткое задание и сохраняет и попадания, и промахи. Одна проверка займёт около пяти минут.";
     closeLayer($("#profile-sheet"));
     emitRealitySignal("first", {}, { label: "НОВЫЙ КОНТУР", priority: "high" });
     updateAppBadge();
     await startAmbientSound();
     showToast("Локальные данные удалены. Звук снова включён по умолчанию.");
+    window.setTimeout(() => openOnboarding({ restart: true }), 420);
   });
 
   $("#open-day-button").addEventListener("click", () => {
@@ -2918,6 +3113,10 @@ function init() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!$("#onboarding").classList.contains("hidden")) {
+        skipOnboarding();
+        return;
+      }
       const openLayerElement = $(".modal:not(.hidden), .sheet:not(.hidden)");
       if (openLayerElement) closeLayer(openLayerElement);
     }
@@ -2957,6 +3156,10 @@ function init() {
     updateRealityFromCurrentState();
   }
   saveState();
+
+  if (!state.onboarding.completed && !signalTarget) {
+    window.setTimeout(() => openOnboarding({ restart: true }), 180);
+  }
 
   if (storageProtection.recovered) {
     window.setTimeout(() => {
