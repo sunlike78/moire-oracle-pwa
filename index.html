@@ -10,14 +10,17 @@
     <meta name="apple-mobile-web-app-title" content="MOIRÉ" />
     <meta
       name="description"
-      content="MOIRÉ — иммерсивный оракул вероятностей и безопасных городских совпадений."
+      content="MOIRÉ — иммерсивный оракул вероятностей, запечатанных знаков и городских совпадений."
     />
     <meta property="og:title" content="MOIRÉ — оракул вероятностей" />
     <meta
       property="og:description"
-      content="Спроси. Выйди. Заметь. Персональные ритуалы, редкие события и безопасные городские пороги."
+      content="Спроси. Запечатай. Заметь. Персональные ритуалы, реальные экспедиции и честная хроника совпадений."
     />
-    <meta property="og:image" content="./assets/moire-icon-1024.png" />
+    <meta property="og:url" content="https://sunlike78.github.io/moire-oracle-pwa/" />
+    <meta property="og:image" content="https://sunlike78.github.io/moire-oracle-pwa/assets/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <meta property="og:type" content="website" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
@@ -101,6 +104,12 @@
               </button>
             </div>
 
+            <article class="memory-card hidden" id="memory-card">
+              <span class="section-kicker">СЛЕД ИЗ ПРОШЛОЙ ЭКСПЕДИЦИИ</span>
+              <strong id="memory-fragment">—</strong>
+              <p id="memory-copy">—</p>
+            </article>
+
             <article class="signal-card signal-primary">
               <div class="signal-topline">
                 <span class="truth-tag pattern">PATTERN</span>
@@ -153,7 +162,7 @@
                 </div>
                 <div class="echo-lock" id="echo-lock">
                   <span>ЭХО ЗАПЕЧАТАНО</span>
-                  <strong id="echo-countdown">18:00</strong>
+                  <strong id="echo-countdown">03:00</strong>
                   <small>Можно закрыть приложение. Таймер продолжится.</small>
                 </div>
                 <button class="secondary-button hidden" id="reveal-echo-button" type="button">
@@ -241,7 +250,7 @@
             <h1 id="threshold-title">Место, которое<br />не искало тебя.</h1>
             <p>
               Задай намерение. MOIRÉ запечатает его до выбора точки и найдёт поблизости
-              публичное место из OpenStreetMap.
+              предполагаемое публичное место из OpenStreetMap или даст домашний контур.
             </p>
           </div>
 
@@ -283,7 +292,7 @@
               <input id="safety-confirm" type="checkbox" required />
               <span class="check-box" aria-hidden="true"></span>
               <span>
-                Я пойду только днём, останусь в публичном месте и сам проверю безопасность маршрута.
+                Я не пойду ночью, не нарушу границы и сам проверю доступность и безопасность маршрута.
               </span>
             </label>
 
@@ -298,6 +307,14 @@
               <span>ПЕЧАТЬ НАМЕРЕНИЯ</span>
               <strong id="intention-seal">—</strong>
             </div>
+            <button class="primary-button" id="find-threshold-button" type="button">
+              <span>Раскрыть место рядом</span>
+              <span class="button-glyph" aria-hidden="true">⌖</span>
+            </button>
+            <p class="threshold-availability hidden" id="threshold-availability" role="status"></p>
+            <button class="text-button" id="home-threshold-now-button" type="button">
+              Пройти домашний Порог без GPS
+            </button>
             <div class="map-oracle" id="map-oracle">
               <div class="radar-ring radar-one"></div>
               <div class="radar-ring radar-two"></div>
@@ -313,19 +330,15 @@
               <h2 id="place-name">Сначала разреши геопозицию</h2>
               <p id="place-meta">
                 Координаты передаются публичным картографическим сервисам на данных OpenStreetMap
-                только для разового поиска; MOIRÉ их не сохраняет.
+                для поиска. Выбранная точка останется локально на устройстве, чтобы экспедицию можно было продолжить.
               </p>
             </div>
             <div class="omen-card">
-              <span>ИЩИ ЗНАК, ВЫБРАННЫЙ ЗАРАНЕЕ</span>
+              <span>ТРИ ЗНАКА, ВЫБРАННЫЕ ДО МЕСТА</span>
               <strong id="omen-copy">—</strong>
-              <small id="omen-proof">Он появится до раскрытия точки.</small>
+              <ul class="sealed-signs" id="sealed-signs"></ul>
+              <small id="omen-proof">Промах тоже считается: не подгоняй реальность под печать.</small>
             </div>
-            <button class="primary-button" id="find-threshold-button" type="button">
-              <span>Найти безопасный Порог</span>
-              <span class="button-glyph" aria-hidden="true">⌖</span>
-            </button>
-            <p class="threshold-availability hidden" id="threshold-availability" role="status"></p>
             <a class="secondary-button hidden" id="open-map-link" href="#" target="_blank" rel="noopener">
               <span>
                 <small>ОТКРЫТЬ В OPENSTREETMAP</small>
@@ -333,6 +346,64 @@
               </span>
               <span aria-hidden="true">↗</span>
             </a>
+            <button class="secondary-button hidden" id="arrive-threshold-button" type="button">
+              <span>
+                <small>ЭТАП 02 · ПРИБЫТИЕ</small>
+                Я у Порога
+              </span>
+              <span aria-hidden="true">⌾</span>
+            </button>
+            <button class="text-button hidden" id="manual-arrive-threshold-button" type="button">
+              Я в безопасном месте — продолжить без GPS
+            </button>
+
+            <section class="threshold-recovery hidden" id="threshold-recovery">
+              <span class="section-kicker">МАРШРУТ НЕ ОТВЕТИЛ</span>
+              <p id="threshold-recovery-copy">
+                Печать сохранена. Можно расширить поиск или пройти безопасный домашний контур.
+              </p>
+              <div class="recovery-actions">
+                <button type="button" id="expand-threshold-button">Искать до 2,5 км</button>
+                <button type="button" id="home-threshold-button">Порог здесь</button>
+              </div>
+            </section>
+
+            <section class="arrival-panel hidden" id="arrival-panel">
+              <span class="section-kicker">ЭТАП 03 · СВЕРКА</span>
+              <h3>Что ответила реальность?</h3>
+              <p>Сверь место с печатью до того, как объяснишь совпадение.</p>
+              <div class="threshold-outcomes" role="group" aria-label="Исход экспедиции">
+                <button type="button" data-threshold-outcome="exact">Совпало</button>
+                <button type="button" data-threshold-outcome="near">Зацепило</button>
+                <button type="button" data-threshold-outcome="miss">Мимо</button>
+              </div>
+              <label class="field-label" for="threshold-note">
+                <span>ОДНА ДЕТАЛЬ, КОТОРУЮ ТЫ ЗАБЕРЁШЬ</span>
+                <span id="threshold-note-count">0/120</span>
+              </label>
+              <textarea
+                id="threshold-note"
+                maxlength="120"
+                rows="3"
+                placeholder="Например: на скамейке лежала синяя нить"
+              ></textarea>
+              <button class="primary-button" id="complete-threshold-button" type="button" disabled>
+                <span>Сохранить фрагмент</span>
+                <span class="button-glyph" aria-hidden="true">✦</span>
+              </button>
+            </section>
+
+            <section class="threshold-complete hidden" id="threshold-complete">
+              <span class="section-kicker">ЭКСПЕДИЦИЯ ЗАВЕРШЕНА</span>
+              <div class="threshold-fragment" id="threshold-fragment" aria-hidden="true"></div>
+              <h3 id="threshold-fragment-title">Фрагмент сохранён.</h3>
+              <p id="threshold-fragment-copy">Завтра он изменит печать нового дня.</p>
+              <div class="constellation-progress">
+                <span>СОЗВЕЗДИЕ</span>
+                <strong id="constellation-progress">1/7</strong>
+              </div>
+            </section>
+
             <button class="text-button" id="reset-threshold-button" type="button">Создать другой Порог</button>
             <p class="safety-note">
               Не переходи ограждения, не входи в заброшенные здания и не иди туда, где тебе некомфортно.
@@ -377,6 +448,15 @@
                 <span>дней подряд</span>
               </div>
             </div>
+            <section class="chronicle-constellation" aria-labelledby="constellation-title">
+              <div>
+                <span class="section-kicker">ДУГА ИЗ СЕМИ ПОРОГОВ</span>
+                <h2 id="constellation-title">Личное созвездие</h2>
+              </div>
+              <strong id="chronicle-constellation-count">0/7</strong>
+              <div class="constellation-nodes" id="constellation-nodes" aria-hidden="true"></div>
+              <p id="constellation-copy">Первый завершённый Порог зажжёт точку.</p>
+            </section>
             <div class="chronicle-list" id="chronicle-list"></div>
           </section>
 
@@ -551,8 +631,9 @@
         <span class="section-kicker">КРИПТОГРАФИЧЕСКАЯ ПЕЧАТЬ</span>
         <h2 id="seal-title">Прогноз не менялся.</h2>
         <p>
-          Эта короткая подпись создана из даты, твоих сигналов и выбранной карты до раскрытия текста.
-          Она не доказывает сверхъестественное — только честность последовательности.
+          Эта подпись создана до раскрытия текста из даты, текущей фазы, личного ключа,
+          твоих сигналов, карты и последнего фрагмента. Она не доказывает сверхъестественное —
+          только честность последовательности.
         </p>
         <code id="full-forecast-seal">—</code>
       </div>
@@ -602,7 +683,7 @@
       <button id="dismiss-install" type="button" aria-label="Закрыть">×</button>
     </div>
 
-    <audio id="ambient-audio" preload="auto" loop playsinline>
+    <audio id="ambient-audio" preload="metadata" loop playsinline>
       <source src="./assets/audio/moire-whisper-loop.mp3" type="audio/mpeg" />
     </audio>
 

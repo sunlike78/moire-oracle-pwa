@@ -2,12 +2,19 @@
 
 MOIRÉ is an iPhone-first progressive web app prototype: a personal probability
 oracle with daily rituals, transparent `PATTERN / MYTH / CHANCE` labels, and a
-safe nearby-place experiment powered by public OpenStreetMap points of interest.
+sealed nearby-place experiment powered by public OpenStreetMap points of interest.
 
 The daily experience includes a return loop: the user chooses a sigil, receives
-an attention mission, waits for a sealed Echo, records how it matched reality,
-and earns a variable-rarity fragment in the Chronicle. The timer and soundtrack
-survive reloads and are cached for offline use.
+an attention mission, waits three minutes for a sealed Echo, records how it
+matched reality, and earns a variable-rarity fragment in the Chronicle. An Echo
+can be completed after midnight.
+
+The core Threshold loop now persists every stage: the user seals three signs
+before seeing a place, resumes the route after reload, confirms arrival, records
+exact / near / miss plus one detail, and receives a unique `Π` fragment. Seven
+completed Thresholds form a constellation, and the latest fragment and note
+change the next daily forecast. A no-GPS home Threshold provides a full offline
+fallback instead of a dead end.
 
 ## Run locally
 
@@ -36,16 +43,24 @@ No browser-only scheme can guarantee recovery after iOS removes all site data, s
 important chronicles should have an exported backup. The export is readable JSON,
 not encrypted, and should be kept private because it contains the saved profile.
 
-Coordinates are sent directly from the browser to public map services only while
-selecting a nearby place; MOIRÉ does not persist them or send them to an
-application server. The app uses a rate-limited OpenStreetMap Nominatim search
-for parks, monuments, memorials, and public artwork, with public Overpass
-instances as a fallback.
+Approximate coordinates are sent directly from the browser to public map
+services while selecting a nearby place. The chosen destination is then stored
+locally so the expedition can survive reload and return from Maps; it is never
+sent to an MOIRÉ application server. The service worker caches same-origin app
+resources only and never caches Nominatim or Overpass requests. Full reset
+removes the local record and its IndexedDB mirror.
+
+The embedded Suno soundtrack is enabled by default and begins after the first
+browser-permitted gesture. It is loaded lazily rather than blocking installation;
+the procedural Web Audio layer remains available when the MP3 is not cached.
 
 ## Safety and intent
 
 MOIRÉ is an entertainment and attention experiment. It does not predict facts
 and must not be used for health, financial, relationship, or safety decisions.
-The nearby-place mode only proposes named public POIs and still requires the user
-to inspect the route and surroundings. It never justifies trespassing or entering
-unsafe places.
+The nearby-place mode proposes named POIs but does not verify public access,
+opening hours, walking routes, or safety. Straight-line distance is labeled as
+such. The user must inspect the route and surroundings, travel only in daylight,
+and stop whenever the place is closed, private, uncomfortable, or unsafe. A
+destination is an invitation to notice the world, never an instruction to take
+risk or trespass.
