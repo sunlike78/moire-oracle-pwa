@@ -1,0 +1,8 @@
+**/.git
+**/.git/**
+**/.wrangler
+**/.wrangler/**
+.gitignore
+.nojekyll
+README.md
+QA.md
