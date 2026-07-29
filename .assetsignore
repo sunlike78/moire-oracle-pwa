@@ -2,7 +2,9 @@
 **/.git/**
 **/.wrangler
 **/.wrangler/**
+**/.DS_Store
 .gitignore
 .nojekyll
 README.md
 QA.md
+*.log
